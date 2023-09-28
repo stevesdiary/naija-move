@@ -1,8 +1,10 @@
-import express from "express";
-import { AuthorsControlller } from "../controllers/AuthorsController";
-const authorsControlller = new AuthorsControlller();
+import express, {Express} from "express";
+import { ErrorHandler } from "../../utils/ErrorHandler";
+import { AuthorsController } from "../controllers/AuthorsController";
+const authorsController = new AuthorsController();
 const router = express.Router();
 
-router.get("/", authorsControlller.getAuthors);
+router.get("/", ErrorHandler.handleErrors(authorsController.getAuthors));
+router.get("/:id", ErrorHandler.handleErrors(authorsController.getAuthor))
 
 export default router;

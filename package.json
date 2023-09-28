@@ -4,7 +4,7 @@
   "main": "index.js",
   "repository": "https://github.com/stevesdiary/type-orm.git",
   "author": "Stephen Oyeyemi <94493468+stevesdiary@users.noreply.github.com>",
-  "license": "MIT, ISC",
+  "license": "MIT",
   "scripts": {
     "buld": "tsc",
     "dev": "nodemon --watch src --exec 'ts-node' src/index.ts",
