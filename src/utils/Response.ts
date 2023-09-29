@@ -17,10 +17,10 @@ export class ResponseUtl {
   }
 
   static sendError<T>(
-   res: Response,
-   message: string,
-   error: T,
-   statusCode = 500,
+  res: Response,
+  message: string,
+  statusCode = 500,
+  error: T,
  ): Response<T> {
    return res.status(statusCode).json({
      success: false,

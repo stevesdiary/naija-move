@@ -1,7 +1,7 @@
 import { Column, Entity, PrimaryGeneratedColumn } from "typeorm";
-import { AUTHORS } from "../constants/DBTable";
+import { DBtable } from "../constants/DBTable";
 
-@Entity(AUTHORS)
+@Entity(DBtable.AUTHORS)
 export class Author {
    @PrimaryGeneratedColumn()
    id: number;
