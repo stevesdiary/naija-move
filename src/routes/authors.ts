@@ -1,5 +1,5 @@
 import express, { Express } from "express";
-import { ErrorHandler } from "../utils/ErrorHandler";
+import { ErrorHandler } from "../middlewares/ErrorHandler";
 import { AuthorsController } from "../controllers/AuthorsController";
 import { FileUploader } from "../middlewares/FileUploader";
 const authorsController = new AuthorsController();
