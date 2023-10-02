@@ -22,25 +22,5 @@ app.use("*", (req, res) => {
 });
 
 app.use(ErrorHandler.handleErrors);
-// Define Middleware functions to handle errors
-// app.use((err: any, req: Request, res: Response, next: NextFunction) => {
-//   console.error(err);
-//   if (err instanceof EntityNotFoundError) {
-//     return ResponseUtl.sendError(
-//       res,
-//       "Item or page you are looking for does not exist",
-//       404,
-//       null,
-//     );
-//   }
-//   if (err.message === "Invalid file type") {
-//     return ResponseUtl.sendError(res, "Invalid file type", 422, null);
-//   }
-
-//   return res.status(500).send({
-//    success: false,
-//    message: "Something went wrong"
-//   });
-// });
 
 export default app;
