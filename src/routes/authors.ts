@@ -1,7 +1,7 @@
 import express, { Express } from "express";
-import { ErrorHandler } from "../middlewares/ErrorHandler";
-import { AuthorsController } from "../controllers/AuthorsController";
-import { FileUploader } from "../middlewares/FileUploader";
+import { ErrorHandler } from "../http/middlewares/ErrorHandler";
+import { AuthorsController } from "../http/controllers/AuthorsController";
+import { FileUploader } from "../http/middlewares/FileUploader";
 const authorsController = new AuthorsController();
 const router = express.Router();
 

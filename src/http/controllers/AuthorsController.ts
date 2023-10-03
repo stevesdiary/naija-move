@@ -1,8 +1,8 @@
 import { NextFunction, Request, Response } from "express";
-import { AppDataSource } from "../database/data-source";
-import { Author } from "../entities/Author";
-import { ResponseUtl } from "../utils/Response";
-import { Paginator } from "../database/Paginator";
+import { AppDataSource } from "../../database/data-source";
+import { Author } from "../../database/entities/Author";
+import { ResponseUtl } from "../../utils/Response";
+import { Paginator } from "../../database/Paginator";
 import { CreateAuthorDTO, UpdateAuthorDTO } from "../dtos/CreateAuthorDTO";
 import { validate } from "class-validator";
 
@@ -52,6 +52,7 @@ export class AuthorsController {
     const dto = new UpdateAuthorDTO();
 
     Object.assign(dto, authorData);
+    dto.id = parseInt(id)
 
     const errors = await validate(dto)
     if (errors.length > 0 ) {

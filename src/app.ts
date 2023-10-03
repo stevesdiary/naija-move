@@ -4,7 +4,7 @@ import cors from "cors";
 import authorsRoute from "./routes/authors";
 import { EntityNotFoundError } from "typeorm";
 import { ResponseUtl } from "./utils/Response";
-import { ErrorHandler } from "./middlewares/ErrorHandler";
+import { ErrorHandler } from "./http/middlewares/ErrorHandler";
 
 const app: Express = express();
 

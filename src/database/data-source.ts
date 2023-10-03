@@ -1,6 +1,6 @@
 import * as dotenv from 'dotenv';
 import { DataSource } from 'typeorm';
-import { Author } from '../entities/Author';
+import { Author } from './entities/Author';
 dotenv.config()
 
 export const AppDataSource = new DataSource({

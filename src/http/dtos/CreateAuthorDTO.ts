@@ -1,6 +1,11 @@
 import { IsNotEmpty, IsOptional, IsString, MaxLength, MinLength } from "class-validator";
+import { IsUnique } from "../validators/IsUniqueValidator";
+import { AuthorsController } from "../controllers/AuthorsController";
+import { Author } from "../../database/entities/Author";
 
 export class CreateAuthorDTO {
+   id? : number;
+
    @IsNotEmpty()
    @IsString()
    @MinLength(3)
@@ -9,6 +14,7 @@ export class CreateAuthorDTO {
 
    @IsNotEmpty()
    @IsString()
+   @IsUnique(Author, "email")
    email: string;
 
    @IsString()
@@ -19,6 +25,8 @@ export class CreateAuthorDTO {
 }
 
 export class UpdateAuthorDTO {
+   id? : number
+
    @IsNotEmpty()
    @IsString()
    @MinLength(3)
@@ -27,6 +35,7 @@ export class UpdateAuthorDTO {
 
    @IsNotEmpty()
    @IsString()
+   @IsUnique(Author, "email")
    email: string;
 
    @IsString()

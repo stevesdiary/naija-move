@@ -1,5 +1,5 @@
 import { Column, Entity, PrimaryGeneratedColumn } from "typeorm";
-import { DBtable } from "../constants/DBTable";
+import { DBtable } from "../../constants/DBTable";
 
 @Entity(DBtable.AUTHORS)
 export class Author {
