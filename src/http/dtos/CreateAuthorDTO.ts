@@ -1,6 +1,6 @@
 import { IsNotEmpty, IsOptional, IsString, MaxLength, MinLength } from "class-validator";
 import { IsUnique } from "../validators/IsUniqueValidator";
-import { AuthorsController } from "../controllers/AuthorsController";
+// import { AuthorsController } from "../controllers/AuthorsController";
 import { Author } from "../../database/entities/Author";
 
 export class CreateAuthorDTO {
