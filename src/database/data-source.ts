@@ -9,7 +9,7 @@ export const AppDataSource = new DataSource({
    port: Number(process.env.DB_PORT) || 3360,
    username: process.env.DB_USERNAME || "root",
    password: process.env.DB_PASSWORD || "123mySQL",
-   database: process.env.DB_DATABASE || "local",
+   database: process.env.DB_DATABASE || "ts_orm",
    logging: ["query"],
    synchronize: false,
    entities: [Author],

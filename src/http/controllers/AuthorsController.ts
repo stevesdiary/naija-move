@@ -15,7 +15,7 @@ export class AuthorsController {
   async getAuthor(req: Request, res: Response): Promise<Response> {
     const { id } = req.params;
     const author = await AppDataSource.getRepository(Author).findOneByOrFail({
-      id: Number(id),
+      id: Number(id), 
     });
     return ResponseUtl.sendResponse<Author> (
       res,
@@ -43,7 +43,7 @@ export class AuthorsController {
 
     await repo.save(author)
 
-    return ResponseUtl.sendResponse(res,"Successfully ccreated author record", author, 200);
+    return ResponseUtl.sendResponse(res, "Successfully created author record", author, 200);
   }
   async update(req: Request, res: Response): Promise<Response> {
     const {id} = req.params;

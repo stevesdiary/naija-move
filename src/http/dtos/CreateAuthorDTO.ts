@@ -12,7 +12,7 @@ export class CreateAuthorDTO {
    @MaxLength(20)
    name: string;
 
-   @IsNotEmpty()
+    @IsNotEmpty()
    @IsString()
    @IsUnique(Author, "email")
    email: string;
