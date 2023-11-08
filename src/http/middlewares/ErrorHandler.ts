@@ -38,10 +38,10 @@ export class ErrorHandler {
       if (err.message === "Invalid file type") {
          return ResponseUtl.sendError(res, "Invalid file type", 422, null);
       }
-
       return res.status(500).send({
          success: false,
-         message: "Something went wrong"
+         message: "Something went wrong, duplicate entry detected.",
+         err,
       });
    }
    

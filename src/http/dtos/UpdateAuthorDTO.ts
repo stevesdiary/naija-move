@@ -1,1 +1,24 @@
+import { IsEmail, IsNotEmpty, IsOptional, IsString, MaxLength, MinLength } from "class-validator";
+import { IsUnique } from "../validators/IsUniqueValidator";
 import { Author } from "../../database/entities/Author";
+
+
+export class UpdateAuthorDTO {
+   id? : number
+
+   @IsNotEmpty()
+   @IsString()
+   @MinLength(3)
+   @MaxLength(20)
+   name: string;
+
+   @IsNotEmpty()
+   @IsEmail()
+   @IsUnique(Author, "email")
+   email: string;
+
+   @IsString()
+   @IsOptional()
+   @MaxLength(200)
+   bio: string;
+}

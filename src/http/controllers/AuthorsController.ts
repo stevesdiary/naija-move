@@ -3,8 +3,9 @@ import { AppDataSource } from "../../database/data-source";
 import { Author } from "../../database/entities/Author";
 import { ResponseUtl } from "../../utils/Response";
 import { Paginator } from "../../database/Paginator";
-import { CreateAuthorDTO, UpdateAuthorDTO } from "../dtos/CreateAuthorDTO";
-import { validate } from "class-validator";
+import { CreateAuthorDTO} from "../dtos/CreateAuthorDTO";
+import { UpdateAuthorDTO } from "../dtos/UpdateAuthorDTO";
+import { validate, validateOrReject } from "class-validator";
 
 export class AuthorsController {
   async getAuthors(req: Request, res: Response) {
@@ -43,21 +44,22 @@ export class AuthorsController {
 
     await repo.save(author)
 
-    return ResponseUtl.sendResponse(res, "Successfully created author record", author, 200);
+    return ResponseUtl.sendResponse(res, "Successfully created author record", author);
   }
   async update(req: Request, res: Response): Promise<Response> {
-    const {id} = req.params;
+    const { id } = req.params;
     const authorData = req.body;
 
     const dto = new UpdateAuthorDTO();
 
     Object.assign(dto, authorData);
     dto.id = parseInt(id)
+    // dto.name = authorData.name
 
-    const errors = await validate(dto)
-    if (errors.length > 0 ) {
-      return ResponseUtl.sendError(res, "Invalid data", 422, errors)
-    }
+    await validateOrReject(dto)
+    // if (errors.length > 0 ) {
+    //   return ResponseUtl.sendError(res, "Invalid data", 422, errors)
+    // }
     const repo = AppDataSource.getRepository(Author);
 
     const author = await repo.findOneByOrFail({
