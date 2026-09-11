@@ -1,3 +1,8 @@
-node_modules
+node_modules/
+dist/
 .env
-authors
+*.env.local
+drizzle/migrations/*.sql
+coverage/
+.venv/
+*.log
