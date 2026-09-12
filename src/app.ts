@@ -3,7 +3,7 @@ import cors from '@fastify/cors'
 import rateLimit from '@fastify/rate-limit'
 import websocket from '@fastify/websocket'
 import { errorHandler } from './lib/errors.js'
-import { redis } from './lib/idempotency.js'
+import { redis } from './lib/redis.js'
 import { env } from './config/env.js'
 
 // Module routes
