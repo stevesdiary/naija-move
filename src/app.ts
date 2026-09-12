@@ -2,9 +2,17 @@ import Fastify from 'fastify'
 import cors from '@fastify/cors'
 import rateLimit from '@fastify/rate-limit'
 import websocket from '@fastify/websocket'
+import swagger from '@fastify/swagger'
+import swaggerUi from '@fastify/swagger-ui'
+import { readFileSync } from 'fs'
+import { resolve, dirname } from 'path'
+import { fileURLToPath } from 'url'
+import { parse as parseYaml } from 'yaml'
 import { errorHandler } from './lib/errors.js'
 import { redis } from './lib/redis.js'
 import { env } from './config/env.js'
+
+const __dirname = dirname(fileURLToPath(import.meta.url))
 
 // Module routes
 import { identityRoutes } from './modules/identity/identity.routes.js'
@@ -42,6 +50,17 @@ export async function buildApp() {
           : undefined,
     },
     genReqId: () => crypto.randomUUID(),
+  })
+
+  // Swagger — load the static spec file
+  const specPath = resolve(__dirname, '../openapi.yaml')
+  const specDoc = parseYaml(readFileSync(specPath, 'utf8'))
+
+  await app.register(swagger, { mode: 'static', specification: { document: specDoc } })
+  await app.register(swaggerUi, {
+    routePrefix: '/docs',
+    uiConfig: { docExpansion: 'list', deepLinking: true },
+    staticCSP: true,
   })
 
   // Plugins
