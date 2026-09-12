@@ -1,0 +1,2743 @@
+openapi: 3.1.0
+info:
+  title: NaijaMove API
+  version: 1.0.0
+  description: |
+    REST API for the NaijaMove ride-hailing platform.
+    All monetary amounts are in **kobo** (1 NGN = 100 kobo).
+    All timestamps are ISO 8601 UTC strings.
+  contact:
+    name: NaijaMove Engineering
+    email: engineering@naijamove.com
+
+servers:
+  - url: http://localhost:3000
+    description: Local development
+  - url: https://api.naijamove.com
+    description: Production
+
+tags:
+  - name: Auth
+    description: OTP-based authentication
+  - name: Riders
+    description: Rider profile and preferences
+  - name: Drivers
+    description: Driver profile, availability, documents
+  - name: Vehicles
+    description: Vehicle registration and compliance
+  - name: Rides
+    description: Trip lifecycle — request, track, complete
+  - name: Pricing
+    description: Fare quotes and pricing configuration
+  - name: Payments
+    description: Paystack payments, wallet, webhooks
+  - name: Wallet
+    description: Wallet balance and withdrawals
+  - name: Dispatch
+    description: Driver dispatch and offer management
+  - name: Ledger
+    description: Double-entry ledger (admin)
+  - name: Maps
+    description: Geocoding and routing proxy
+  - name: Safety
+    description: SOS and incident reporting
+  - name: Support
+    description: Support cases and messaging
+  - name: Notifications
+    description: Push / SMS / WhatsApp notifications
+  - name: Admin
+    description: Admin operations — trips, drivers, pricing, reports
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          example: Unauthorized
+        message:
+          type: string
+          example: Token expired
+
+    Pagination:
+      type: object
+      properties:
+        limit:
+          type: integer
+          example: 20
+        offset:
+          type: integer
+          example: 0
+
+    Place:
+      type: object
+      properties:
+        name:
+          type: string
+          example: Ikeja City Mall
+        address:
+          type: string
+          example: Ikeja City Mall, Alausa, Ikeja, Lagos
+        coordinates:
+          type: object
+          properties:
+            lat:
+              type: number
+              example: 6.6018
+            lng:
+              type: number
+              example: 3.3515
+
+    RouteResult:
+      type: object
+      properties:
+        distanceMeters:
+          type: integer
+          example: 8400
+        durationSeconds:
+          type: integer
+          example: 1560
+        polyline:
+          type: string
+          example: "_p~iF~ps|U_ulLnnqC_mqNvxq`@"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# AUTH
+# ─────────────────────────────────────────────────────────────────────────────
+paths:
+  /auth/otp/request:
+    post:
+      tags: [Auth]
+      summary: Request OTP
+      description: Sends a 6-digit OTP via SMS to the given Nigerian phone number.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone]
+              properties:
+                phone:
+                  type: string
+                  pattern: '^\+234[0-9]{10}$'
+                  example: "+2348025550193"
+            example:
+              phone: "+2348025550193"
+      responses:
+        "202":
+          description: OTP dispatched
+          content:
+            application/json:
+              example:
+                message: OTP sent
+        "400":
+          description: Invalid phone number
+          content:
+            application/json:
+              example:
+                error: Bad Request
+                message: Must be a valid Nigerian phone number (+234XXXXXXXXXX)
+
+  /auth/otp/verify:
+    post:
+      tags: [Auth]
+      summary: Verify OTP and obtain tokens
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone, code]
+              properties:
+                phone:
+                  type: string
+                  example: "+2348025550193"
+                code:
+                  type: string
+                  minLength: 6
+                  maxLength: 6
+                  example: "482193"
+            example:
+              phone: "+2348025550193"
+              code: "482193"
+      responses:
+        "200":
+          description: Tokens issued
+          content:
+            application/json:
+              example:
+                accessToken: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                refreshToken: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                user:
+                  id: "usr_01HZ9K2M3N4P5Q6R7S8T9U0V"
+                  phone: "+2348025550193"
+                  role: "rider"
+        "401":
+          description: Invalid or expired OTP
+
+  /auth/token/refresh:
+    post:
+      tags: [Auth]
+      summary: Refresh access token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken:
+                  type: string
+            example:
+              refreshToken: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+      responses:
+        "200":
+          description: New token pair
+          content:
+            application/json:
+              example:
+                accessToken: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                refreshToken: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: Logout (invalidate session)
+      security:
+        - bearerAuth: []
+      responses:
+        "204":
+          description: Session invalidated
+
+# ─────────────────────────────────────────────────────────────────────────────
+# RIDERS
+# ─────────────────────────────────────────────────────────────────────────────
+  /riders/me:
+    get:
+      tags: [Riders]
+      summary: Get my rider profile
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Rider profile
+          content:
+            application/json:
+              example:
+                id: "rdr_01HZ9K2M3N4P5Q6R7S8T9U0V"
+                userId: "usr_01HZ9K2M3N4P5Q6R7S8T9U0V"
+                name: "Tunde Bakare"
+                phone: "+2348025550193"
+                email: "tunde@example.com"
+                rating: 4.9
+                totalTrips: 42
+                preferredPaymentMethod: "card"
+                createdAt: "2024-01-15T10:30:00Z"
+    put:
+      tags: [Riders]
+      summary: Update my rider profile
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  example: "Tunde Bakare"
+                email:
+                  type: string
+                  format: email
+                  example: "tunde@example.com"
+                preferredPaymentMethod:
+                  type: string
+                  example: "card"
+            example:
+              name: "Tunde Bakare"
+              email: "tunde@example.com"
+              preferredPaymentMethod: "card"
+      responses:
+        "200":
+          description: Updated profile
+
+  /riders/me/saved-places:
+    get:
+      tags: [Riders]
+      summary: List saved places
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Saved places list
+          content:
+            application/json:
+              example:
+                places:
+                  - id: "plc_01HZ9K2M3N4P5Q6R7S8T9U0V"
+                    label: "home"
+                    name: "24 Adetokunbo Ademola St"
+                    address: "24 Adetokunbo Ademola St, Victoria Island, Lagos"
+                    lat: 6.4281
+                    lng: 3.4219
+                  - id: "plc_02HZ9K2M3N4P5Q6R7S8T9U0V"
+                    label: "work"
+                    name: "Ikeja City Mall"
+                    address: "Ikeja City Mall, Alausa, Ikeja, Lagos"
+                    lat: 6.6018
+                    lng: 3.3515
+    post:
+      tags: [Riders]
+      summary: Add a saved place
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [label, name, address, lat, lng]
+              properties:
+                label:
+                  type: string
+                  enum: [home, work, other]
+                name:
+                  type: string
+                address:
+                  type: string
+                lat:
+                  type: number
+                lng:
+                  type: number
+            example:
+              label: "home"
+              name: "24 Adetokunbo Ademola St"
+              address: "24 Adetokunbo Ademola St, Victoria Island, Lagos"
+              lat: 6.4281
+              lng: 3.4219
+      responses:
+        "200":
+          description: Saved place created
+
+  /riders/me/saved-places/{placeId}:
+    delete:
+      tags: [Riders]
+      summary: Remove a saved place
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: placeId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "plc_01HZ9K2M3N4P5Q6R7S8T9U0V"
+      responses:
+        "200":
+          description: Removed
+          content:
+            application/json:
+              example:
+                message: Saved place removed
+
+  /riders/me/emergency-contacts:
+    get:
+      tags: [Riders]
+      summary: List emergency contacts
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Emergency contacts
+          content:
+            application/json:
+              example:
+                contacts:
+                  - id: "ec_01HZ9K2M3N4P5Q6R7S8T9U0V"
+                    name: "Ngozi Bakare"
+                    phone: "+2348037712244"
+                    shareTrips: true
+    post:
+      tags: [Riders]
+      summary: Add emergency contact
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, phone]
+              properties:
+                name:
+                  type: string
+                phone:
+                  type: string
+                  pattern: '^\+234[0-9]{10}$'
+                shareTrips:
+                  type: boolean
+            example:
+              name: "Ngozi Bakare"
+              phone: "+2348037712244"
+              shareTrips: true
+      responses:
+        "200":
+          description: Contact added
+
+  /riders/me/emergency-contacts/{contactId}:
+    delete:
+      tags: [Riders]
+      summary: Remove emergency contact
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: contactId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Removed
+          content:
+            application/json:
+              example:
+                message: Emergency contact removed
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DRIVERS
+# ─────────────────────────────────────────────────────────────────────────────
+  /drivers/register:
+    post:
+      tags: [Drivers]
+      summary: Register as a driver
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Driver profile created
+          content:
+            application/json:
+              example:
+                id: "drv_01HZ9K2M3N4P5Q6R7S8T9U0V"
+                userId: "usr_01HZ9K2M3N4P5Q6R7S8T9U0V"
+                status: "pending_review"
+                createdAt: "2024-01-15T10:30:00Z"
+
+  /drivers/me:
+    get:
+      tags: [Drivers]
+      summary: Get my driver profile
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Driver profile
+          content:
+            application/json:
+              example:
+                id: "drv_01HZ9K2M3N4P5Q6R7S8T9U0V"
+                name: "Emeka Okafor"
+                phone: "+2348025550193"
+                rating: 4.87
+                totalTrips: 1240
+                status: "approved"
+                isOnline: true
+                tier: "gold"
+                acceptanceRate: 94
+                completionRate: 98
+
+  /drivers/availability:
+    post:
+      tags: [Drivers]
+      summary: Set online / offline status
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [isOnline]
+              properties:
+                isOnline:
+                  type: boolean
+            example:
+              isOnline: true
+      responses:
+        "200":
+          description: Status updated
+          content:
+            application/json:
+              example:
+                isOnline: true
+                updatedAt: "2026-09-11T16:00:00Z"
+
+  /drivers/location:
+    post:
+      tags: [Drivers]
+      summary: Update driver GPS location
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [lat, lng]
+              properties:
+                lat:
+                  type: number
+                  minimum: -90
+                  maximum: 90
+                lng:
+                  type: number
+                  minimum: -180
+                  maximum: 180
+            example:
+              lat: 6.4281
+              lng: 3.4219
+      responses:
+        "200":
+          description: Location updated
+
+  /drivers/earnings:
+    get:
+      tags: [Drivers]
+      summary: Get driver earnings summary
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Earnings breakdown
+          content:
+            application/json:
+              example:
+                today:
+                  tripsCompleted: 7
+                  grossKobo: 620000
+                  commissionKobo: 124000
+                  netKobo: 496000
+                week:
+                  tripsCompleted: 34
+                  grossKobo: 3460000
+                  commissionKobo: 692000
+                  bonusKobo: 200000
+                  netKobo: 2968000
+                walletBalanceKobo: 1260000
+
+  /drivers/documents:
+    get:
+      tags: [Drivers]
+      summary: List my documents
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Document list
+          content:
+            application/json:
+              example:
+                documents:
+                  - id: "doc_01HZ9K2M3N4P5Q6R7S8T9U0V"
+                    type: "drivers_licence"
+                    status: "verified"
+                    expiresAt: "2028-06-02T00:00:00Z"
+                  - id: "doc_02HZ9K2M3N4P5Q6R7S8T9U0V"
+                    type: "insurance"
+                    status: "expiring_soon"
+                    expiresAt: "2026-09-25T00:00:00Z"
+    post:
+      tags: [Drivers]
+      summary: Upload a document
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type]
+              properties:
+                type:
+                  type: string
+                  enum: [drivers_licence, vehicle_registration, insurance, inspection, background_check, profile_photo]
+                fileUrl:
+                  type: string
+                  format: uri
+                referenceNumber:
+                  type: string
+                expiresAt:
+                  type: string
+                  format: date-time
+            example:
+              type: "drivers_licence"
+              fileUrl: "https://storage.naijamove.com/docs/licence-emeka.jpg"
+              referenceNumber: "LIC-2024-00482"
+              expiresAt: "2028-06-02T00:00:00Z"
+      responses:
+        "200":
+          description: Document uploaded
+
+  /drivers/{driverId}/approve:
+    post:
+      tags: [Drivers]
+      summary: Approve a driver (admin)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: driverId
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "drv_01HZ9K2M3N4P5Q6R7S8T9U0V"
+      responses:
+        "200":
+          description: Driver approved
+          content:
+            application/json:
+              example:
+                id: "drv_01HZ9K2M3N4P5Q6R7S8T9U0V"
+                status: "approved"
+
+  /drivers/{driverId}/suspend:
+    post:
+      tags: [Drivers]
+      summary: Suspend a driver (admin)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: driverId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason:
+                  type: string
+            example:
+              reason: "Multiple rider complaints about unsafe driving"
+      responses:
+        "200":
+          description: Driver suspended
+
+# ─────────────────────────────────────────────────────────────────────────────
+# VEHICLES
+# ─────────────────────────────────────────────────────────────────────────────
+  /vehicles:
+    get:
+      tags: [Vehicles]
+      summary: List my vehicles
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Vehicle list
+          content:
+            application/json:
+              example:
+                vehicles:
+                  - id: "veh_01HZ9K2M3N4P5Q6R7S8T9U0V"
+                    plate: "LND 482 KJ"
+                    make: "Toyota"
+                    model: "Corolla"
+                    year: 2019
+                    color: "White"
+                    category: "economy"
+                    seats: 4
+                    isActive: true
+    post:
+      tags: [Vehicles]
+      summary: Register a vehicle
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [plate, make, model, year, color, category, seats]
+              properties:
+                plate:
+                  type: string
+                  example: "LND 482 KJ"
+                make:
+                  type: string
+                  example: "Toyota"
+                model:
+                  type: string
+                  example: "Corolla"
+                year:
+                  type: integer
+                  example: 2019
+                color:
+                  type: string
+                  example: "White"
+                category:
+                  type: string
+                  enum: [economy, comfort, premium, xl]
+                seats:
+                  type: integer
+                  example: 4
+            example:
+              plate: "LND 482 KJ"
+              make: "Toyota"
+              model: "Corolla"
+              year: 2019
+              color: "White"
+              category: "economy"
+              seats: 4
+      responses:
+        "200":
+          description: Vehicle registered
+
+  /vehicles/{vehicleId}:
+    get:
+      tags: [Vehicles]
+      summary: Get a vehicle
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: vehicleId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Vehicle detail
+    put:
+      tags: [Vehicles]
+      summary: Update a vehicle
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: vehicleId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example:
+              color: "Silver"
+              isActive: true
+      responses:
+        "200":
+          description: Updated
+    delete:
+      tags: [Vehicles]
+      summary: Remove a vehicle
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: vehicleId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Removed
+          content:
+            application/json:
+              example:
+                message: Vehicle removed
+
+  /vehicles/{vehicleId}/inspections:
+    get:
+      tags: [Vehicles]
+      summary: List vehicle inspections
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: vehicleId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Inspections
+          content:
+            application/json:
+              example:
+                inspections:
+                  - id: "ins_01HZ9K2M3N4P5Q6R7S8T9U0V"
+                    status: "passed"
+                    result: "All systems nominal"
+                    inspectedAt: "2026-01-10T09:00:00Z"
+                    expiresAt: "2027-01-10T09:00:00Z"
+    post:
+      tags: [Vehicles]
+      summary: Add inspection record
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: vehicleId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example:
+              status: "passed"
+              result: "All systems nominal"
+              inspectedAt: "2026-01-10T09:00:00Z"
+              expiresAt: "2027-01-10T09:00:00Z"
+      responses:
+        "200":
+          description: Inspection added
+
+  /vehicles/{vehicleId}/insurance:
+    get:
+      tags: [Vehicles]
+      summary: List vehicle insurance records
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: vehicleId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Insurance records
+    post:
+      tags: [Vehicles]
+      summary: Add insurance record
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: vehicleId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example:
+              provider: "AXA Mansard"
+              policyNumber: "AXA-2026-00482193"
+              expiresAt: "2027-09-11T00:00:00Z"
+              documentUrl: "https://storage.naijamove.com/docs/insurance-lnd482kj.pdf"
+      responses:
+        "200":
+          description: Insurance added
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PRICING
+# ─────────────────────────────────────────────────────────────────────────────
+  /pricing/quote:
+    post:
+      tags: [Pricing]
+      summary: Get a fare quote
+      description: |
+        Returns a fare quote for a given route. Call `/maps/route` first to get
+        `distanceMeters` and `durationSeconds`. The returned `quoteId` must be
+        passed when creating a trip.
+      security:
+        - bearerAuth: []
+        - {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [city, category, pickupLat, pickupLng, destinationLat, destinationLng, distanceMeters, durationSeconds]
+              properties:
+                city:
+                  type: string
+                  example: "Lagos"
+                category:
+                  type: string
+                  enum: [economy, comfort, premium, xl]
+                pickupLat:
+                  type: number
+                  example: 6.4281
+                pickupLng:
+                  type: number
+                  example: 3.4219
+                destinationLat:
+                  type: number
+                  example: 6.6018
+                destinationLng:
+                  type: number
+                  example: 3.3515
+                distanceMeters:
+                  type: integer
+                  example: 8400
+                durationSeconds:
+                  type: integer
+                  example: 1560
+            example:
+              city: "Lagos"
+              category: "economy"
+              pickupLat: 6.4281
+              pickupLng: 3.4219
+              destinationLat: 6.6018
+              destinationLng: 3.3515
+              distanceMeters: 8400
+              durationSeconds: 1560
+      responses:
+        "200":
+          description: Fare quote
+          content:
+            application/json:
+              example:
+                quoteId: "qte_01HZ9K2M3N4P5Q6R7S8T9U0V"
+                category: "economy"
+                fareKobo: 185000
+                breakdown:
+                  baseFareKobo: 60000
+                  distanceChargeKobo: 105000
+                  bookingFeeKobo: 20000
+                surgeMultiplier: 1.4
+                surgeActive: true
+                expiresAt: "2026-09-11T16:05:00Z"
+
+  /pricing/configs:
+    get:
+      tags: [Pricing]
+      summary: List pricing configs (admin)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: city
+          in: query
+          schema:
+            type: string
+          example: "Lagos"
+        - name: category
+          in: query
+          schema:
+            type: string
+            enum: [economy, comfort, premium, xl]
+      responses:
+        "200":
+          description: Pricing configs
+          content:
+            application/json:
+              example:
+                configs:
+                  - id: "cfg_01HZ9K2M3N4P5Q6R7S8T9U0V"
+                    city: "Lagos"
+                    category: "economy"
+                    baseFareKobo: 60000
+                    perKmKobo: 12500
+                    perMinKobo: 1500
+                    bookingFeeKobo: 20000
+                    platformFeePercent: 0.20
+                    surgeCapMultiplier: 3.0
+                    effectiveFrom: "2026-01-01T00:00:00Z"
+    post:
+      tags: [Pricing]
+      summary: Create pricing config (admin)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example:
+              city: "Lagos"
+              category: "economy"
+              baseFareKobo: 60000
+              perKmKobo: 12500
+              perMinKobo: 1500
+              bookingFeeKobo: 20000
+              cancellationFeeKobo: 20000
+              floorFuelEstimateKobo: 35000
+              floorWearReserveKobo: 10000
+              floorDriverTimeValueKobo: 15000
+              platformFeePercent: 0.20
+              surgeCapMultiplier: 3.0
+              effectiveFrom: "2026-01-01T00:00:00Z"
+      responses:
+        "200":
+          description: Config created
+
+  /pricing/surge:
+    post:
+      tags: [Pricing]
+      summary: Create surge window (admin)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example:
+              city: "Lagos"
+              category: "economy"
+              multiplier: 1.8
+              reason: "Friday evening peak demand"
+              startsAt: "2026-09-12T17:00:00Z"
+              endsAt: "2026-09-12T20:00:00Z"
+      responses:
+        "200":
+          description: Surge window created
+
+# ─────────────────────────────────────────────────────────────────────────────
+# RIDES
+# ─────────────────────────────────────────────────────────────────────────────
+  /rides:
+    post:
+      tags: [Rides]
+      summary: Request a trip (rider)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pickupAddress, pickupLat, pickupLng, destinationAddress, destinationLat, destinationLng, paymentMethod, quoteId]
+              properties:
+                pickupAddress:
+                  type: string
+                pickupLat:
+                  type: number
+                pickupLng:
+                  type: number
+                destinationAddress:
+                  type: string
+                destinationLat:
+                  type: number
+                destinationLng:
+                  type: number
+                paymentMethod:
+                  type: string
+                  enum: [card, wallet, cash, bank_transfer, corporate_wallet]
+                quoteId:
+                  type: string
+                  format: uuid
+                mode:
+                  type: string
+                  enum: [immediate, scheduled]
+                  default: immediate
+                scheduledFor:
+                  type: string
+                  format: date-time
+            example:
+              pickupAddress: "24 Adetokunbo Ademola St, Victoria Island"
+              pickupLat: 6.4281
+              pickupLng: 3.4219
+              destinationAddress: "Ikeja City Mall, Alausa, Ikeja"
+              destinationLat: 6.6018
+              destinationLng: 3.3515
+              paymentMethod: "card"
+              quoteId: "qte_01HZ9K2M3N4P5Q6R7S8T9U0V"
+              mode: "immediate"
+      responses:
+        "200":
+          description: Trip created and dispatch started
+          content:
+            application/json:
+              example:
+                id: "trp_01HZ9K2M3N4P5Q6R7S8T9U0V"
+                status: "searching"
+                pin: "4821"
+                fareKobo: 185000
+                pickupAddress: "24 Adetokunbo Ademola St, Victoria Island"
+                destinationAddress: "Ikeja City Mall, Alausa, Ikeja"
+                createdAt: "2026-09-11T16:00:00Z"
+
+  /rides/me:
+    get:
+      tags: [Rides]
+      summary: List my trips (rider)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: Trip history
+          content:
+            application/json:
+              example:
+                trips:
+                  - id: "trp_01HZ9K2M3N4P5Q6R7S8T9U0V"
+                    status: "completed"
+                    pickupAddress: "Victoria Island"
+                    destinationAddress: "Ikeja"
+                    fareKobo: 185000
+                    createdAt: "2026-09-11T15:36:00Z"
+
+  /rides/{id}:
+    get:
+      tags: [Rides]
+      summary: Get trip detail (rider)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Trip detail
+          content:
+            application/json:
+              example:
+                id: "trp_01HZ9K2M3N4P5Q6R7S8T9U0V"
+                status: "in_progress"
+                pin: "4821"
+                driver:
+                  name: "Emeka Okafor"
+                  phone: "+2348025550193"
+                  rating: 4.87
+                  vehicle:
+                    plate: "LND 482 KJ"
+                    make: "Toyota"
+                    model: "Corolla"
+                    color: "White"
+                fareKobo: 185000
+                surgeMultiplier: 1.4
+
+  /rides/{id}/cancel:
+    post:
+      tags: [Rides]
+      summary: Cancel a trip (rider)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example:
+              reason: "Changed my mind"
+      responses:
+        "200":
+          description: Trip cancelled
+
+  /rides/{id}/stops:
+    post:
+      tags: [Rides]
+      summary: Add a stop to active trip (rider)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example:
+              address: "Shoprite, Admiralty Way, Lekki Phase 1"
+              lat: 6.4698
+              lng: 3.5852
+      responses:
+        "200":
+          description: Stop added
+
+  /rides/{id}/destination:
+    put:
+      tags: [Rides]
+      summary: Update destination mid-trip (rider)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example:
+              destinationAddress: "Murtala Muhammed Airport, Ikeja"
+              destinationLat: 6.5774
+              destinationLng: 3.3212
+      responses:
+        "200":
+          description: Destination updated
+
+  /rides/{id}/rate:
+    post:
+      tags: [Rides]
+      summary: Rate a completed trip (rider)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example:
+              rating: 5
+              comment: "Smooth ride, AC was perfect"
+              tipKobo: 20000
+      responses:
+        "200":
+          description: Rating submitted
+
+  /rides/offers/{offerId}/accept:
+    post:
+      tags: [Rides]
+      summary: Accept a trip offer (driver)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: offerId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Offer accepted
+          content:
+            application/json:
+              example:
+                tripId: "trp_01HZ9K2M3N4P5Q6R7S8T9U0V"
+                status: "accepted"
+                pickup:
+                  address: "24 Adetokunbo Ademola St, Victoria Island"
+                  lat: 6.4281
+                  lng: 3.4219
+
+  /rides/offers/{offerId}/decline:
+    post:
+      tags: [Rides]
+      summary: Decline a trip offer (driver)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: offerId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        content:
+          application/json:
+            example:
+              reason: "Too far from pickup"
+      responses:
+        "200":
+          description: Offer declined
+
+  /rides/driver/trips/{tripId}/arrive:
+    post:
+      tags: [Rides]
+      summary: Mark arrived at pickup (driver)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: tripId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Arrival recorded
+
+  /rides/driver/trips/{tripId}/start:
+    post:
+      tags: [Rides]
+      summary: Verify PIN and start trip (driver)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: tripId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [pin]
+              properties:
+                pin:
+                  type: string
+                  minLength: 4
+                  maxLength: 4
+            example:
+              pin: "4821"
+      responses:
+        "200":
+          description: Trip started
+
+  /rides/driver/trips/{tripId}/complete:
+    post:
+      tags: [Rides]
+      summary: Complete a trip (driver)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: tripId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example:
+              finalDistanceMeters: 8650
+              finalDurationSeconds: 1620
+      responses:
+        "200":
+          description: Trip completed and earnings settled
+          content:
+            application/json:
+              example:
+                status: "completed"
+                grossKobo: 185000
+                commissionKobo: 37000
+                netKobo: 148000
+
+  /rides/driver/trips/{tripId}/cancel:
+    post:
+      tags: [Rides]
+      summary: Cancel a trip (driver)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: tripId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example:
+              reason: "Vehicle breakdown"
+      responses:
+        "200":
+          description: Trip cancelled
+
+  /rides/driver/trips/{tripId}/rate:
+    post:
+      tags: [Rides]
+      summary: Rate a rider (driver)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: tripId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example:
+              rating: 5
+              comment: "Polite and ready on time"
+      responses:
+        "200":
+          description: Rating submitted
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PAYMENTS
+# ─────────────────────────────────────────────────────────────────────────────
+  /payments/initialize:
+    post:
+      tags: [Payments]
+      summary: Initialize card payment for a trip
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example:
+              tripId: "trp_01HZ9K2M3N4P5Q6R7S8T9U0V"
+              email: "tunde@example.com"
+              metadata:
+                context: "trip_payment"
+      responses:
+        "200":
+          description: Paystack checkout URL
+          content:
+            application/json:
+              example:
+                authorizationUrl: "https://checkout.paystack.com/0peioxfhpn"
+                accessCode: "0peioxfhpn"
+                reference: "NM-PAY-20260911-48213"
+
+  /payments/verify/{reference}:
+    get:
+      tags: [Payments]
+      summary: Verify a payment by reference
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: reference
+          in: path
+          required: true
+          schema:
+            type: string
+          example: "NM-PAY-20260911-48213"
+      responses:
+        "200":
+          description: Payment status
+          content:
+            application/json:
+              example:
+                reference: "NM-PAY-20260911-48213"
+                status: "success"
+                amountKobo: 185000
+                channel: "card"
+                paidAt: "2026-09-11T16:02:00Z"
+
+  /payments/refund:
+    post:
+      tags: [Payments]
+      summary: Refund a payment (admin)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example:
+              reference: "NM-PAY-20260911-48213"
+              amountKobo: 185000
+      responses:
+        "200":
+          description: Refund initiated
+
+  /payments/payout/driver:
+    post:
+      tags: [Payments]
+      summary: Trigger driver payout (admin)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example:
+              driverId: "drv_01HZ9K2M3N4P5Q6R7S8T9U0V"
+              amountKobo: 500000
+              settlementCycleId: "cyc_01HZ9K2M3N4P5Q6R7S8T9U0V"
+      responses:
+        "200":
+          description: Payout created
+
+  /payments/wallet/topup/initialize:
+    post:
+      tags: [Payments]
+      summary: Initialize wallet top-up via Paystack
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example:
+              amountKobo: 500000
+              email: "tunde@example.com"
+      responses:
+        "200":
+          description: Paystack checkout URL
+          content:
+            application/json:
+              example:
+                authorizationUrl: "https://checkout.paystack.com/topup_0peioxfhpn"
+                reference: "NM-TOPUP-20260911-00193"
+
+  /payments/webhooks/paystack:
+    post:
+      tags: [Payments]
+      summary: Paystack webhook receiver
+      description: |
+        Verified via HMAC-SHA512 signature in `x-paystack-signature` header.
+        Responds 200 immediately; processes async.
+        Handles `charge.success` and `transfer.success` events.
+      parameters:
+        - name: x-paystack-signature
+          in: header
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example:
+              event: "charge.success"
+              data:
+                reference: "NM-PAY-20260911-48213"
+                amount: 185000
+                status: "success"
+                metadata:
+                  context: "trip_payment"
+                  tripId: "trp_01HZ9K2M3N4P5Q6R7S8T9U0V"
+      responses:
+        "200":
+          description: Acknowledged
+          content:
+            application/json:
+              example:
+                received: true
+
+# ─────────────────────────────────────────────────────────────────────────────
+# WALLET
+# ─────────────────────────────────────────────────────────────────────────────
+  /wallet/balance:
+    get:
+      tags: [Wallet]
+      summary: Get my wallet balance
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Wallet balance
+          content:
+            application/json:
+              example:
+                balanceKobo: 1260000
+                formattedBalance: "₦ 12,600"
+                ownerType: "driver"
+
+  /wallet/transactions:
+    get:
+      tags: [Wallet]
+      summary: Get my wallet transactions
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: Transaction list
+          content:
+            application/json:
+              example:
+                transactions:
+                  - id: "wtx_01HZ9K2M3N4P5Q6R7S8T9U0V"
+                    type: "credit"
+                    amountKobo: 148000
+                    description: "Trip earnings — VI → Ikeja"
+                    reference: "trp_01HZ9K2M3N4P5Q6R7S8T9U0V"
+                    createdAt: "2026-09-11T15:58:00Z"
+                  - id: "wtx_02HZ9K2M3N4P5Q6R7S8T9U0V"
+                    type: "debit"
+                    amountKobo: 500000
+                    description: "Payout to GTBank ••• 4821"
+                    reference: "NM-PAYOUT-20260910-00193"
+                    createdAt: "2026-09-10T18:02:00Z"
+
+  /wallet/withdraw:
+    post:
+      tags: [Wallet]
+      summary: Withdraw to bank account (driver / fleet owner)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [amountKobo, bankCode, accountNumber, accountName]
+              properties:
+                amountKobo:
+                  type: integer
+                  minimum: 50000
+                bankCode:
+                  type: string
+                accountNumber:
+                  type: string
+                  minLength: 10
+                  maxLength: 10
+                accountName:
+                  type: string
+            example:
+              amountKobo: 500000
+              bankCode: "058"
+              accountNumber: "0123454821"
+              accountName: "EMEKA CHUKWUDI OKAFOR"
+      responses:
+        "200":
+          description: Withdrawal initiated
+          content:
+            application/json:
+              example:
+                balanceKobo: 760000
+                reference: "NM-PAYOUT-20260911-00482"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# DISPATCH
+# ─────────────────────────────────────────────────────────────────────────────
+  /dispatch/trips/{tripId}/dispatch:
+    post:
+      tags: [Dispatch]
+      summary: Manually dispatch a trip (admin)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: tripId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Dispatch triggered
+          content:
+            application/json:
+              example:
+                tripId: "trp_01HZ9K2M3N4P5Q6R7S8T9U0V"
+                offersCreated: 3
+                drivers:
+                  - driverId: "drv_01HZ9K2M3N4P5Q6R7S8T9U0V"
+                    score: 0.87
+                    etaSeconds: 240
+
+  /dispatch/trips/{tripId}/attempts:
+    get:
+      tags: [Dispatch]
+      summary: View dispatch attempts for a trip (admin)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: tripId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Dispatch attempts
+          content:
+            application/json:
+              example:
+                tripId: "trp_01HZ9K2M3N4P5Q6R7S8T9U0V"
+                attempts:
+                  - attemptNumber: 1
+                    driversContacted: 3
+                    outcome: "declined"
+                    createdAt: "2026-09-11T16:00:05Z"
+                  - attemptNumber: 2
+                    driversContacted: 3
+                    outcome: "accepted"
+                    acceptedBy: "drv_01HZ9K2M3N4P5Q6R7S8T9U0V"
+                    createdAt: "2026-09-11T16:00:35Z"
+
+  /dispatch/trips/{tripId}/offers:
+    get:
+      tags: [Dispatch]
+      summary: View pending offers for a trip (admin)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: tripId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Pending offers
+          content:
+            application/json:
+              example:
+                tripId: "trp_01HZ9K2M3N4P5Q6R7S8T9U0V"
+                offers:
+                  - id: "off_01HZ9K2M3N4P5Q6R7S8T9U0V"
+                    driverId: "drv_01HZ9K2M3N4P5Q6R7S8T9U0V"
+                    status: "pending"
+                    expiresAt: "2026-09-11T16:01:00Z"
+
+  /dispatch/offers/me:
+    get:
+      tags: [Dispatch]
+      summary: Get my pending offers (driver)
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Pending offers for the driver
+          content:
+            application/json:
+              example:
+                offers:
+                  - id: "off_01HZ9K2M3N4P5Q6R7S8T9U0V"
+                    tripId: "trp_01HZ9K2M3N4P5Q6R7S8T9U0V"
+                    pickup:
+                      address: "24 Adetokunbo Ademola St, Victoria Island"
+                      area: "Victoria Island"
+                      lat: 6.4281
+                      lng: 3.4219
+                    distanceToPickupKm: 1.2
+                    distanceKm: 8.4
+                    fareKobo: 185000
+                    surgeMultiplier: 1.4
+                    expiresAt: "2026-09-11T16:01:00Z"
+
+  /dispatch/nearby-drivers:
+    get:
+      tags: [Dispatch]
+      summary: Find nearby available drivers (admin)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: lat
+          in: query
+          required: true
+          schema:
+            type: number
+          example: 6.4281
+        - name: lng
+          in: query
+          required: true
+          schema:
+            type: number
+          example: 3.4219
+        - name: radius
+          in: query
+          schema:
+            type: number
+            default: 5
+          description: Search radius in km
+      responses:
+        "200":
+          description: Nearby drivers
+          content:
+            application/json:
+              example:
+                candidates:
+                  - driverId: "drv_01HZ9K2M3N4P5Q6R7S8T9U0V"
+                    name: "Emeka Okafor"
+                    distanceKm: 1.2
+                    etaSeconds: 240
+                    rating: 4.87
+                    totalTrips: 1240
+                    score: 0.87
+
+# ─────────────────────────────────────────────────────────────────────────────
+# LEDGER
+# ─────────────────────────────────────────────────────────────────────────────
+  /ledger/accounts/{account}/balance:
+    get:
+      tags: [Ledger]
+      summary: Get account balance (admin)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: account
+          in: path
+          required: true
+          schema:
+            type: string
+            enum: [rider_wallet, driver_payable, platform_revenue, platform_liability, promo_expense, refund_liability, payout_clearing, corporate_wallet]
+          example: "driver_payable"
+      responses:
+        "200":
+          description: Account balance
+          content:
+            application/json:
+              example:
+                account: "driver_payable"
+                balanceKobo: 48293000
+                creditKobo: 52100000
+                debitKobo: 3807000
+
+  /ledger/entries:
+    get:
+      tags: [Ledger]
+      summary: Query ledger entries (admin)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: referenceId
+          in: query
+          schema:
+            type: string
+          example: "trp_01HZ9K2M3N4P5Q6R7S8T9U0V"
+        - name: referenceType
+          in: query
+          schema:
+            type: string
+            enum: [trip, payout, refund, topup]
+        - name: account
+          in: query
+          schema:
+            type: string
+        - name: from
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: to
+          in: query
+          schema:
+            type: string
+            format: date-time
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: Ledger entries
+          content:
+            application/json:
+              example:
+                entries:
+                  - id: "led_01HZ9K2M3N4P5Q6R7S8T9U0V"
+                    account: "driver_payable"
+                    type: "credit"
+                    amountKobo: 148000
+                    referenceId: "trp_01HZ9K2M3N4P5Q6R7S8T9U0V"
+                    referenceType: "trip"
+                    correlationId: "cor_01HZ9K2M3N4P5Q6R7S8T9U0V"
+                    createdAt: "2026-09-11T15:58:00Z"
+
+  /ledger/correlations/{correlationId}:
+    get:
+      tags: [Ledger]
+      summary: Get debit/credit pair by correlation ID (admin)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: correlationId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Correlated entries
+          content:
+            application/json:
+              example:
+                correlationId: "cor_01HZ9K2M3N4P5Q6R7S8T9U0V"
+                entries:
+                  - account: "platform_revenue"
+                    type: "credit"
+                    amountKobo: 37000
+                  - account: "driver_payable"
+                    type: "credit"
+                    amountKobo: 148000
+
+  /ledger/wallet-balance:
+    get:
+      tags: [Ledger]
+      summary: Get wallet balance for any owner (admin)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: ownerId
+          in: query
+          required: true
+          schema:
+            type: string
+          example: "drv_01HZ9K2M3N4P5Q6R7S8T9U0V"
+        - name: ownerType
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [rider, driver, corporate, fleet_owner]
+      responses:
+        "200":
+          description: Wallet balance
+          content:
+            application/json:
+              example:
+                ownerId: "drv_01HZ9K2M3N4P5Q6R7S8T9U0V"
+                ownerType: "driver"
+                balanceKobo: 1260000
+
+# ─────────────────────────────────────────────────────────────────────────────
+# MAPS
+# ─────────────────────────────────────────────────────────────────────────────
+  /maps/geocode:
+    get:
+      tags: [Maps]
+      summary: Geocode a place query
+      description: OSM-first (Photon → Nominatim). Optional auth.
+      security:
+        - bearerAuth: []
+        - {}
+      parameters:
+        - name: q
+          in: query
+          required: true
+          schema:
+            type: string
+            minLength: 2
+          example: "Ikeja City Mall"
+      responses:
+        "200":
+          description: Geocoded places
+          content:
+            application/json:
+              example:
+                places:
+                  - name: "Ikeja City Mall"
+                    address: "Ikeja City Mall, Alausa, Ikeja, Lagos, Nigeria"
+                    coordinates:
+                      lat: 6.6018
+                      lng: 3.3515
+                  - name: "Ikeja"
+                    address: "Ikeja, Lagos, Nigeria"
+                    coordinates:
+                      lat: 6.5958
+                      lng: 3.3398
+
+  /maps/route:
+    post:
+      tags: [Maps]
+      summary: Get route distance and duration
+      description: OSRM-based routing (OSM). Call this before /pricing/quote.
+      security:
+        - bearerAuth: []
+        - {}
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example:
+              pickupLat: 6.4281
+              pickupLng: 3.4219
+              destinationLat: 6.6018
+              destinationLng: 3.3515
+      responses:
+        "200":
+          description: Route result
+          content:
+            application/json:
+              example:
+                distanceMeters: 8400
+                durationSeconds: 1560
+                polyline: "_p~iF~ps|U_ulLnnqC_mqNvxq`@"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SAFETY
+# ─────────────────────────────────────────────────────────────────────────────
+  /safety/sos:
+    post:
+      tags: [Safety]
+      summary: Trigger SOS alert
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example:
+              tripId: "trp_01HZ9K2M3N4P5Q6R7S8T9U0V"
+              lat: 6.4281
+              lng: 3.4219
+              description: "Driver is behaving aggressively"
+      responses:
+        "200":
+          description: SOS triggered
+          content:
+            application/json:
+              example:
+                incidentId: "inc_01HZ9K2M3N4P5Q6R7S8T9U0V"
+                status: "open"
+                severity: "critical"
+                message: "Emergency services notified"
+
+  /safety/incidents:
+    post:
+      tags: [Safety]
+      summary: Report an incident
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example:
+              tripId: "trp_01HZ9K2M3N4P5Q6R7S8T9U0V"
+              type: "unsafe_driving"
+              severity: "high"
+              description: "Driver ran two red lights on the expressway"
+      responses:
+        "200":
+          description: Incident reported
+          content:
+            application/json:
+              example:
+                incidentId: "inc_01HZ9K2M3N4P5Q6R7S8T9U0V"
+                status: "open"
+    get:
+      tags: [Safety]
+      summary: List incidents (admin)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [open, assigned, investigating, escalated, resolved, closed]
+        - name: severity
+          in: query
+          schema:
+            type: string
+            enum: [low, medium, high, critical]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: Incident list
+
+  /safety/incidents/{incidentId}:
+    get:
+      tags: [Safety]
+      summary: Get incident detail
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: incidentId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Incident detail
+          content:
+            application/json:
+              example:
+                id: "inc_01HZ9K2M3N4P5Q6R7S8T9U0V"
+                type: "unsafe_driving"
+                severity: "high"
+                status: "investigating"
+                tripId: "trp_01HZ9K2M3N4P5Q6R7S8T9U0V"
+                reportedBy: "usr_01HZ9K2M3N4P5Q6R7S8T9U0V"
+                createdAt: "2026-09-11T16:10:00Z"
+
+  /safety/incidents/{incidentId}/status:
+    put:
+      tags: [Safety]
+      summary: Update incident status (admin)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: incidentId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example:
+              status: "resolved"
+              note: "Driver warned and placed on probation"
+      responses:
+        "200":
+          description: Status updated
+
+  /safety/incidents/{incidentId}/assign:
+    post:
+      tags: [Safety]
+      summary: Assign incident to agent (admin)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: incidentId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example:
+              assignedTo: "usr_agent_01HZ9K2M3N4P5Q6R7S8T9U0V"
+      responses:
+        "200":
+          description: Assigned
+
+# ─────────────────────────────────────────────────────────────────────────────
+# SUPPORT
+# ─────────────────────────────────────────────────────────────────────────────
+  /support:
+    post:
+      tags: [Support]
+      summary: Create a support case
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example:
+              referenceId: "trp_01HZ9K2M3N4P5Q6R7S8T9U0V"
+              referenceType: "trip"
+              category: "payment"
+              subject: "Commission charged twice on trip T-4821"
+              priority: "normal"
+              initialMessage: "The fare showed ₦ 1,850 but my net came to ₦ 1,480. Was commission applied twice?"
+      responses:
+        "200":
+          description: Case created
+          content:
+            application/json:
+              example:
+                id: "cas_01HZ9K2M3N4P5Q6R7S8T9U0V"
+                ref: "NMD-2026-00391"
+                status: "open"
+                createdAt: "2026-09-11T16:10:00Z"
+    get:
+      tags: [Support]
+      summary: List my support cases
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: category
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: Case list
+          content:
+            application/json:
+              example:
+                cases:
+                  - id: "cas_01HZ9K2M3N4P5Q6R7S8T9U0V"
+                    ref: "NMD-2026-00391"
+                    subject: "Commission charged twice on trip T-4821"
+                    status: "open"
+                    category: "payment"
+                    priority: "normal"
+                    updatedAt: "2026-09-11T16:18:00Z"
+
+  /support/{caseId}:
+    get:
+      tags: [Support]
+      summary: Get case detail
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: caseId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Case detail
+
+  /support/{caseId}/messages:
+    get:
+      tags: [Support]
+      summary: Get case messages
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: caseId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Messages
+          content:
+            application/json:
+              example:
+                messages:
+                  - id: "msg_01HZ9K2M3N4P5Q6R7S8T9U0V"
+                    body: "The fare showed ₦ 1,850 but my net came to ₦ 1,480."
+                    authorType: "user"
+                    isInternal: false
+                    createdAt: "2026-09-11T16:10:00Z"
+                  - id: "msg_02HZ9K2M3N4P5Q6R7S8T9U0V"
+                    body: "Hi Emeka, commission was ₦ 370 (20%). I'm checking the surge bonus."
+                    authorType: "agent"
+                    isInternal: false
+                    createdAt: "2026-09-11T16:18:00Z"
+    post:
+      tags: [Support]
+      summary: Add message to case
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: caseId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example:
+              body: "Yes, the surge bonus of ₦ 400 was not credited."
+              isInternal: false
+      responses:
+        "200":
+          description: Message added
+
+  /support/{caseId}/status:
+    put:
+      tags: [Support]
+      summary: Update case status (admin)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: caseId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example:
+              status: "resolved"
+      responses:
+        "200":
+          description: Status updated
+
+  /support/{caseId}/assign:
+    post:
+      tags: [Support]
+      summary: Assign case to agent (admin)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: caseId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example:
+              assignedTo: "usr_agent_01HZ9K2M3N4P5Q6R7S8T9U0V"
+      responses:
+        "200":
+          description: Assigned
+
+  /support/admin/all:
+    get:
+      tags: [Support]
+      summary: List all cases (admin)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: category
+          in: query
+          schema:
+            type: string
+        - name: priority
+          in: query
+          schema:
+            type: string
+        - name: assignedTo
+          in: query
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: All cases
+
+# ─────────────────────────────────────────────────────────────────────────────
+# NOTIFICATIONS
+# ─────────────────────────────────────────────────────────────────────────────
+  /notifications/send:
+    post:
+      tags: [Notifications]
+      summary: Send a notification (admin)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example:
+              userId: "usr_01HZ9K2M3N4P5Q6R7S8T9U0V"
+              channel: "push"
+              templateId: "trip_completed"
+              variables:
+                driverName: "Emeka"
+                amountKobo: 148000
+      responses:
+        "200":
+          description: Notification sent
+
+  /notifications/send/bulk:
+    post:
+      tags: [Notifications]
+      summary: Send bulk notification (admin)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example:
+              userIds:
+                - "usr_01HZ9K2M3N4P5Q6R7S8T9U0V"
+                - "usr_02HZ9K2M3N4P5Q6R7S8T9U0V"
+              channel: "sms"
+              templateId: "promo_announcement"
+              variables:
+                promoCode: "NAIJA50"
+                discountPercent: 50
+      responses:
+        "200":
+          description: Bulk notifications queued
+
+  /notifications/templates:
+    get:
+      tags: [Notifications]
+      summary: List notification templates (admin)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: channel
+          in: query
+          schema:
+            type: string
+            enum: [push, sms, whatsapp]
+        - name: locale
+          in: query
+          schema:
+            type: string
+            example: "en"
+      responses:
+        "200":
+          description: Templates
+          content:
+            application/json:
+              example:
+                templates:
+                  - id: "tpl_01HZ9K2M3N4P5Q6R7S8T9U0V"
+                    name: "trip_completed"
+                    channel: "push"
+                    subject: "Trip completed"
+                    body: "Your trip to {{destination}} is complete. Fare: ₦ {{fare}}."
+                    locale: "en"
+                    isActive: true
+    post:
+      tags: [Notifications]
+      summary: Create notification template (admin)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example:
+              name: "driver_bonus_unlocked"
+              channel: "push"
+              subject: "Bonus unlocked!"
+              body: "You completed the {{bonusName}} — ₦ {{amountKobo}} added to your wallet."
+              locale: "en"
+      responses:
+        "200":
+          description: Template created
+
+  /notifications/my:
+    get:
+      tags: [Notifications]
+      summary: Get my notification history
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: Notification history
+          content:
+            application/json:
+              example:
+                notifications:
+                  - id: "ntf_01HZ9K2M3N4P5Q6R7S8T9U0V"
+                    title: "Trip completed"
+                    body: "Your trip to Ikeja is complete. Fare: ₦ 1,850."
+                    channel: "push"
+                    readAt: null
+                    createdAt: "2026-09-11T15:58:00Z"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ADMIN
+# ─────────────────────────────────────────────────────────────────────────────
+  /admin/trips:
+    get:
+      tags: [Admin]
+      summary: List all trips (admin)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [searching, accepted, navigating, arrived, in_progress, completed, cancelled]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: Trip list
+          content:
+            application/json:
+              example:
+                trips:
+                  - id: "trp_01HZ9K2M3N4P5Q6R7S8T9U0V"
+                    status: "completed"
+                    pickupAddress: "Victoria Island"
+                    destinationAddress: "Ikeja"
+                    fareKobo: 185000
+                    platformFeeKobo: 37000
+                    createdAt: "2026-09-11T15:36:00Z"
+
+  /admin/trips/{tripId}:
+    get:
+      tags: [Admin]
+      summary: Get trip detail (admin)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: tripId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Full trip detail
+
+  /admin/trips/{tripId}/cancel:
+    post:
+      tags: [Admin]
+      summary: Cancel a trip (admin)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: tripId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example:
+              reason: "Fraudulent booking detected"
+      responses:
+        "200":
+          description: Trip cancelled
+
+  /admin/drivers:
+    get:
+      tags: [Admin]
+      summary: List all drivers (admin)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending_review, approved, suspended, rejected]
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: Driver list
+
+  /admin/drivers/{driverId}/approve:
+    post:
+      tags: [Admin]
+      summary: Approve a driver (admin)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: driverId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Driver approved
+
+  /admin/drivers/{driverId}/suspend:
+    post:
+      tags: [Admin]
+      summary: Suspend a driver (admin)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: driverId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example:
+              reason: "Multiple safety complaints"
+      responses:
+        "200":
+          description: Driver suspended
+
+  /admin/pricing:
+    get:
+      tags: [Admin]
+      summary: List pricing configs (admin)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: city
+          in: query
+          schema:
+            type: string
+        - name: category
+          in: query
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Pricing configs
+    post:
+      tags: [Admin]
+      summary: Create pricing config (admin)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example:
+              city: "Lagos"
+              category: "economy"
+              baseFareKobo: 60000
+              perKmKobo: 12500
+              perMinKobo: 1500
+              bookingFeeKobo: 20000
+              cancellationFeeKobo: 20000
+              floorFuelEstimateKobo: 35000
+              floorWearReserveKobo: 10000
+              floorDriverTimeValueKobo: 15000
+              platformFeePercent: 0.20
+              surgeCapMultiplier: 3.0
+              effectiveFrom: "2026-01-01T00:00:00Z"
+      responses:
+        "200":
+          description: Config created
+
+  /admin/pricing/surge:
+    post:
+      tags: [Admin]
+      summary: Create surge window (admin)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            example:
+              city: "Lagos"
+              category: "economy"
+              multiplier: 1.8
+              reason: "Friday evening peak"
+              startsAt: "2026-09-12T17:00:00Z"
+              endsAt: "2026-09-12T20:00:00Z"
+      responses:
+        "200":
+          description: Surge window created
+
+  /admin/reports/marketplace:
+    get:
+      tags: [Admin]
+      summary: Marketplace summary report (admin)
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Marketplace metrics
+          content:
+            application/json:
+              example:
+                trips:
+                  total: 18420
+                  completed: 16890
+                  cancelled: 1230
+                  active: 300
+                  revenueKobo: 624930000
+                drivers:
+                  total: 842
+                  online: 214
+                  approved: 780
+                riders:
+                  total: 9341
+
+  /health:
+    get:
+      tags: [Admin]
+      summary: Health check
+      responses:
+        "200":
+          description: Server is up
+          content:
+            application/json:
+              example:
+                status: ok
+                timestamp: "2026-09-11T16:00:00Z"
