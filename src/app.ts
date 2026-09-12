@@ -61,10 +61,14 @@ export async function buildApp() {
     routePrefix: '/docs',
     uiConfig: { docExpansion: 'list', deepLinking: true },
     staticCSP: true,
+    logLevel: 'silent',
   })
 
   // Plugins
-  await app.register(cors, { origin: true })
+  await app.register(cors, {
+    origin: ['http://localhost:3004', 'http://127.0.0.1:3004'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  })
   await app.register(rateLimit, {
     global: true,
     max: 100,

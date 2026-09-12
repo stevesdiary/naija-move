@@ -11,12 +11,15 @@ info:
     email: engineering@naijamove.com
 
 servers:
-  - url: http://localhost:3000
+  - url: http://localhost:3004
     description: Local development
   - url: https://api.naijamove.com
     description: Production
 
+    
 tags:
+  - name: Health
+    description: Server health
   - name: Auth
     description: OTP-based authentication
   - name: Riders
@@ -112,6 +115,22 @@ components:
 # AUTH
 # ─────────────────────────────────────────────────────────────────────────────
 paths:
+  #
+  # Health check
+  #
+  /health:
+    get:
+      tags: [Health]
+      summary: Health check
+      responses:
+        "200":
+          description: Server is up
+          content:
+            application/json:
+              example:
+                status: ok
+                timestamp: "2026-09-11T16:00:00Z"
+
   /auth/otp/request:
     post:
       tags: [Auth]
@@ -2729,15 +2748,3 @@ paths:
                 riders:
                   total: 9341
 
-  /health:
-    get:
-      tags: [Admin]
-      summary: Health check
-      responses:
-        "200":
-          description: Server is up
-          content:
-            application/json:
-              example:
-                status: ok
-                timestamp: "2026-09-11T16:00:00Z"
