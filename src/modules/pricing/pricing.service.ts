@@ -25,6 +25,22 @@ export interface QuoteResult {
   expiresAt: Date
 }
 
+/** A validated, unconsumed quote with the fee split the booking needs. */
+export interface BookableQuote {
+  id: string
+  riderId: string | null
+  pickupLat: number
+  pickupLng: number
+  destinationLat: number
+  destinationLng: number
+  distanceMeters: number
+  durationSeconds: number
+  estimatedFareKobo: number
+  surgeMultiplier: number
+  platformFeeKobo: number
+  driverAmountKobo: number
+}
+
 export const pricingService = {
   async getQuote(params: {
     city: string
@@ -35,7 +51,7 @@ export const pricingService = {
     destinationLng: number
     distanceMeters: number
     durationSeconds: number
-    riderId: string
+    riderId: string | null
   }): Promise<QuoteResult> {
     // Get active pricing config (cached)
     const cacheKey = `pricing:${params.city}:${params.category}`
@@ -118,15 +134,37 @@ export const pricingService = {
     }
   },
 
-  async validateQuote(quoteId: string) {
-    const cached = await redis.get<string>(`quote:${quoteId}`)
-    if (cached) return JSON.parse(cached)
-
-    const quote = await pricingRepository.findValidQuote(quoteId)
+  async validateQuote(quoteId: string): Promise<BookableQuote> {
+    const cached = await redis.get<string | Record<string, unknown>>(`quote:${quoteId}`)
+    let quote = cached
+      ? (typeof cached === 'string' ? JSON.parse(cached) : cached)
+      : await pricingRepository.findValidQuote(quoteId)
     if (!quote) throw errors.unprocessable('Quote expired or already used')
+    if (new Date(quote.expiresAt) < new Date() || quote.usedAt) {
+      throw errors.unprocessable('Quote expired or already used')
+    }
 
-    await redis.set(`quote:${quoteId}`, JSON.stringify(quote), { ex: QUOTE_TTL_SECONDS })
-    return quote
+    if (!cached) await redis.set(`quote:${quoteId}`, JSON.stringify(quote), { ex: QUOTE_TTL_SECONDS })
+
+    // The stored row has no breakdown — derive the split from the config it was priced with.
+    const config = await pricingRepository.findConfigById(quote.pricingConfigId)
+    if (!config) throw errors.unprocessable('Pricing config for quote no longer exists')
+    const platformFeeKobo = Math.round(quote.estimatedFareKobo * config.platformFeePercent)
+
+    return {
+      id: quote.id,
+      riderId: quote.riderId,
+      pickupLat: quote.pickupLat,
+      pickupLng: quote.pickupLng,
+      destinationLat: quote.destinationLat,
+      destinationLng: quote.destinationLng,
+      distanceMeters: quote.distanceMeters,
+      durationSeconds: quote.durationSeconds,
+      estimatedFareKobo: quote.estimatedFareKobo,
+      surgeMultiplier: quote.surgeMultiplier,
+      platformFeeKobo,
+      driverAmountKobo: quote.estimatedFareKobo - platformFeeKobo,
+    }
   },
 
   async consumeQuote(quoteId: string) {

@@ -16,14 +16,11 @@ import {
 } from './rides.schema.js'
 import { ridesService } from './rides.service.js'
 import { closeTripChannel } from '../../websocket/trip.ws.js'
-import { ridersService } from '../riders/riders.service.js'
-
-/** JWT `sub` is the user id; trips reference the rider row, so resolve it once per request. */
-async function riderIdFor(userId: string): Promise<string> {
-  const rider = await ridersService.getProfile(userId)
-  if (!rider) throw new Error('Rider profile missing')
-  return rider.id
-}
+import { riderIdFor, driverIdFor } from '../../lib/actors.js'
+import { env } from '../../config/env.js'
+import { errors } from '../../lib/errors.js'
+import { secretEquals } from '../../lib/secrets.js'
+import { clampLimit, clampOffset } from '../../lib/pagination.js'
 
 export async function rideRoutes(app: FastifyInstance) {
   // Rider endpoints
@@ -38,7 +35,7 @@ export async function rideRoutes(app: FastifyInstance) {
 
   app.get('/me', { preHandler: [authenticate, authorize('rider')] }, async (req) => {
     const { limit, offset } = req.query as { limit?: string; offset?: string }
-    return ridesService.listTrips(await riderIdFor(req.user.sub), limit ? parseInt(limit) : 20, offset ? parseInt(offset) : 0)
+    return ridesService.listTrips(await riderIdFor(req.user.sub), clampLimit(limit, 20), clampOffset(offset))
   })
 
   app.get('/:id', { preHandler: [authenticate, authorize('rider')] }, async (req) => {
@@ -89,12 +86,12 @@ export async function rideRoutes(app: FastifyInstance) {
   // Driver endpoints
   app.get('/driver/me', { preHandler: [authenticate, authorize('driver')] }, async (req) => {
     const { limit, offset } = req.query as { limit?: string; offset?: string }
-    return ridesService.listDriverTrips(req.user.sub, limit ? parseInt(limit) : 20, offset ? parseInt(offset) : 0)
+    return ridesService.listDriverTrips(await driverIdFor(req.user.sub), clampLimit(limit, 20), clampOffset(offset))
   })
 
   app.post('/offers/:offerId/accept', { preHandler: [authenticate, authorize('driver')] }, async (req) => {
     const { offerId } = req.params as { offerId: string }
-    return ridesService.acceptOffer(offerId, req.user.sub)
+    return ridesService.acceptOffer(offerId, await driverIdFor(req.user.sub))
   })
 
   app.post<{ Body: { reason?: string }; Params: { offerId: string } }>(
@@ -103,7 +100,7 @@ export async function rideRoutes(app: FastifyInstance) {
     async (req) => {
       const { offerId } = req.params
       const { reason } = req.body
-      return ridesService.declineOffer(offerId, req.user.sub, reason)
+      return ridesService.declineOffer(offerId, await driverIdFor(req.user.sub), reason)
     },
   )
 
@@ -112,7 +109,7 @@ export async function rideRoutes(app: FastifyInstance) {
     { preHandler: [authenticate, authorize('driver')] },
     async (req) => {
       const { tripId } = req.params
-      return ridesService.driverArrived(tripId, req.user.sub)
+      return ridesService.driverArrived(tripId, await driverIdFor(req.user.sub))
     },
   )
 
@@ -122,7 +119,7 @@ export async function rideRoutes(app: FastifyInstance) {
     async (req) => {
       const { tripId } = req.params
       const body = verifyPinSchema.parse(req.body)
-      return ridesService.verifyPinAndStart(tripId, body.pin, req.user.sub)
+      return ridesService.verifyPinAndStart(tripId, body.pin, await driverIdFor(req.user.sub))
     },
   )
 
@@ -132,7 +129,7 @@ export async function rideRoutes(app: FastifyInstance) {
     async (req) => {
       const { tripId } = req.params
       const { finalDistanceMeters, finalDurationSeconds } = req.body
-      return ridesService.completeTrip(tripId, req.user.sub, finalDistanceMeters, finalDurationSeconds)
+      return ridesService.completeTrip(tripId, await driverIdFor(req.user.sub), finalDistanceMeters, finalDurationSeconds)
     },
   )
 
@@ -142,7 +139,7 @@ export async function rideRoutes(app: FastifyInstance) {
     async (req) => {
       const { tripId } = req.params
       const body = cancelTripSchema.parse(req.body)
-      return ridesService.cancelTrip(tripId, req.user.sub, 'driver', body.reason)
+      return ridesService.cancelTrip(tripId, await driverIdFor(req.user.sub), 'driver', body.reason)
     },
   )
 
@@ -152,12 +149,13 @@ export async function rideRoutes(app: FastifyInstance) {
     async (req) => {
       const { tripId } = req.params
       const body = rateTripSchema.parse(req.body)
-      return ridesService.rateTrip(tripId, req.user.sub, 'driver', body.rating, body.comment)
+      return ridesService.rateTrip(tripId, await driverIdFor(req.user.sub), 'driver', body.rating, body.comment)
     },
   )
 
-  // Cleanup WS channel on trip completion/cancellation (internal use)
+  // Cleanup WS channel on trip completion/cancellation — internal callers only
   app.post('/internal/trips/:tripId/close-channel', async (req) => {
+    if (!secretEquals(req.headers['x-internal-secret'], env.INTERNAL_JOB_SECRET)) throw errors.unauthorized()
     const { tripId } = req.params as { tripId: string }
     closeTripChannel(tripId)
     return { closed: true }

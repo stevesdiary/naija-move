@@ -1,3 +1,4 @@
+import { randomInt, timingSafeEqual } from 'node:crypto'
 import { db } from '../../db/index.js'
 import { trips, tripStops, tripEvents, tripRatings, driverOffers, dispatchAttempts, drivers, riders, users, vehicles } from '../../db/schema/index.js'
 import { eq, and, isNull, desc, inArray, sql, gte } from 'drizzle-orm'
@@ -7,7 +8,7 @@ const OFFER_EXPIRY_SECONDS = 20
 const MAX_DISPATCH_ATTEMPTS = 3
 
 function generatePin(): string {
-  return Math.floor(1000 + Math.random() * 9000).toString()
+  return randomInt(1000, 10000).toString()
 }
 
 export const ridesRepository = {
@@ -94,8 +95,10 @@ export const ridesRepository = {
     })
   },
 
+  /** Driver-facing list — the pickup PIN is the rider's secret and must never be in this payload. */
   async findByDriverId(driverId: string, limit = 20, offset = 0) {
     return db.query.trips.findMany({
+      columns: { pin: false },
       where: and(eq(trips.driverId, driverId), isNull(trips.deletedAt)),
       orderBy: [desc(trips.createdAt)],
       limit,
@@ -200,8 +203,10 @@ export const ridesRepository = {
 
   async verifyPin(id: string, pin: string) {
     const trip = await this.findById(id)
-    if (!trip) return false
-    return trip.pin === pin && !trip.pinVerified
+    if (!trip?.pin || trip.pinVerified) return false
+    const a = Buffer.from(trip.pin)
+    const b = Buffer.from(pin)
+    return a.length === b.length && timingSafeEqual(a, b)
   },
 
   async markPinVerified(id: string) {

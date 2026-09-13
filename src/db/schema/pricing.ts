@@ -24,7 +24,8 @@ export const pricingConfigs = pgTable('pricing_configs', {
 
 export const fareQuotes = pgTable('fare_quotes', {
   id: uuid('id').primaryKey(),
-  riderId: uuid('rider_id').notNull(),
+  /** Rider profile id; null for pre-auth (anonymous) quotes. */
+  riderId: uuid('rider_id'),
   pricingConfigId: uuid('pricing_config_id').notNull().references(() => pricingConfigs.id),
   pickupLat: real('pickup_lat').notNull(),
   pickupLng: real('pickup_lng').notNull(),

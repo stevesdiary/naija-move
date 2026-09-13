@@ -3,8 +3,38 @@ import { pricingService } from '../pricing/pricing.service.js'
 import { dispatchService } from '../dispatch/dispatch.service.js'
 import { maps } from '../../providers/maps.js'
 import { errors } from '../../lib/errors.js'
+import { redis } from '../../lib/idempotency.js'
 
 const CANCELLATION_FEE_KOBO = 5000 // ₦50
+const PIN_MAX_ATTEMPTS = 5
+const PIN_ATTEMPT_WINDOW_SECONDS = 15 * 60
+/** How far the booked pickup/destination may drift from the quoted ones before the quote is rejected. */
+const QUOTE_COORD_TOLERANCE_METERS = 150
+
+function haversineMeters(aLat: number, aLng: number, bLat: number, bLng: number): number {
+  const R = 6371000
+  const toRad = (d: number) => (d * Math.PI) / 180
+  const dLat = toRad(bLat - aLat)
+  const dLng = toRad(bLng - aLng)
+  const h =
+    Math.sin(dLat / 2) ** 2 + Math.cos(toRad(aLat)) * Math.cos(toRad(bLat)) * Math.sin(dLng / 2) ** 2
+  return 2 * R * Math.asin(Math.sqrt(h))
+}
+
+type Trip = NonNullable<Awaited<ReturnType<typeof ridesRepository.findById>>>
+
+async function loadTrip(tripId: string): Promise<Trip> {
+  const trip = await ridesRepository.findById(tripId)
+  if (!trip) throw errors.notFound('Trip not found')
+  return trip
+}
+
+/** Every mutation on a trip must prove the actor is its rider, its driver, or the platform itself. */
+function assertTripActor(trip: Trip, actorId: string, actorType: 'rider' | 'driver' | 'system') {
+  if (actorType === 'system') return
+  const ownerId = actorType === 'rider' ? trip.riderId : trip.driverId
+  if (ownerId !== actorId) throw errors.forbidden('Not your trip')
+}
 
 export interface CreateTripParams {
   riderId: string
@@ -24,15 +54,16 @@ export const ridesService = {
   async createTrip(params: CreateTripParams) {
     // Validate and consume quote
     const quote = await pricingService.validateQuote(params.quoteId)
-    if (quote.riderId !== params.riderId && quote.riderId !== 'anonymous') {
+    if (quote.riderId !== null && quote.riderId !== params.riderId) {
       throw errors.forbidden('Quote does not belong to rider')
     }
 
-    // Get route details from maps
-    const route = await maps.getRoute(
-      { lat: params.pickupLat, lng: params.pickupLng },
-      { lat: params.destinationLat, lng: params.destinationLng }
-    )
+    // The fare was computed for the quoted coordinates — refuse to book a different route on it.
+    const pickupDrift = haversineMeters(quote.pickupLat, quote.pickupLng, params.pickupLat, params.pickupLng)
+    const destDrift = haversineMeters(quote.destinationLat, quote.destinationLng, params.destinationLat, params.destinationLng)
+    if (pickupDrift > QUOTE_COORD_TOLERANCE_METERS || destDrift > QUOTE_COORD_TOLERANCE_METERS) {
+      throw errors.unprocessable('Quote was issued for a different pickup/destination — request a new quote')
+    }
 
     await pricingService.consumeQuote(params.quoteId)
 
@@ -45,11 +76,11 @@ export const ridesService = {
       destinationLat: params.destinationLat,
       destinationLng: params.destinationLng,
       estimatedFareKobo: quote.estimatedFareKobo,
-      platformFeeKobo: quote.breakdown.platformFeeKobo,
-      driverAmountKobo: quote.breakdown.driverAmountKobo,
-      surgeMultiplier: quote.breakdown.surgeMultiplier,
-      distanceMeters: route.distanceMeters,
-      durationSeconds: route.durationSeconds,
+      platformFeeKobo: quote.platformFeeKobo,
+      driverAmountKobo: quote.driverAmountKobo,
+      surgeMultiplier: quote.surgeMultiplier,
+      distanceMeters: quote.distanceMeters,
+      durationSeconds: quote.durationSeconds,
       paymentMethod: params.paymentMethod,
       quoteId: params.quoteId,
       mode: params.mode ?? 'immediate',
@@ -113,13 +144,20 @@ export const ridesService = {
   },
 
   async verifyPinAndStart(tripId: string, pin: string, actorId: string) {
-    const trip = await ridesRepository.findById(tripId)
-    if (!trip) throw errors.notFound('Trip not found')
+    const trip = await loadTrip(tripId)
+    assertTripActor(trip, actorId, 'driver')
     if (trip.status !== 'driver_arrived') throw errors.unprocessable('Trip not in driver_arrived state')
+
+    // 4-digit PIN: cap guesses per trip or the assigned driver can enumerate it in minutes.
+    const attemptsKey = `trip:pin:attempts:${tripId}`
+    const attempts = await redis.incr(attemptsKey)
+    if (attempts === 1) await redis.expire(attemptsKey, PIN_ATTEMPT_WINDOW_SECONDS)
+    if (attempts > PIN_MAX_ATTEMPTS) throw errors.unprocessable('Too many PIN attempts — contact support')
 
     const valid = await ridesRepository.verifyPin(tripId, pin)
     if (!valid) throw errors.unauthorized('Invalid or already used PIN')
 
+    await redis.del(attemptsKey)
     await ridesRepository.markPinVerified(tripId)
     await ridesRepository.updateStatus(tripId, 'in_progress', actorId, 'driver')
     return { tripId, status: 'in_progress' }
@@ -147,8 +185,8 @@ export const ridesService = {
   },
 
   async cancelTrip(tripId: string, actorId: string, actorType: 'rider' | 'driver' | 'system', reason: string) {
-    const trip = await ridesRepository.findById(tripId)
-    if (!trip) throw errors.notFound('Trip not found')
+    const trip = await loadTrip(tripId)
+    assertTripActor(trip, actorId, actorType)
 
     const terminalStates = ['completed', 'cancelled']
     if (terminalStates.includes(trip.status)) throw errors.unprocessable('Trip already completed or cancelled')
@@ -173,8 +211,8 @@ export const ridesService = {
   },
 
   async addStop(tripId: string, actorId: string, address: string, lat: number, lng: number) {
-    const trip = await ridesRepository.findById(tripId)
-    if (!trip) throw errors.notFound('Trip not found')
+    const trip = await loadTrip(tripId)
+    assertTripActor(trip, actorId, 'rider')
     if (!['driver_arriving', 'driver_arrived', 'in_progress'].includes(trip.status)) {
       throw errors.unprocessable('Cannot add stop at this trip stage')
     }
@@ -192,8 +230,8 @@ export const ridesService = {
   },
 
   async updateDestination(tripId: string, actorId: string, destinationAddress: string, destinationLat: number, destinationLng: number) {
-    const trip = await ridesRepository.findById(tripId)
-    if (!trip) throw errors.notFound('Trip not found')
+    const trip = await loadTrip(tripId)
+    assertTripActor(trip, actorId, 'rider')
     if (trip.status !== 'in_progress') throw errors.unprocessable('Can only update destination during trip')
 
     const route = await maps.getRoute(
@@ -220,15 +258,12 @@ export const ridesService = {
     comment?: string,
     tipKobo?: number,
   ) {
-    const trip = await ridesRepository.findById(tripId)
-    if (!trip) throw errors.notFound('Trip not found')
+    const trip = await loadTrip(tripId)
+    assertTripActor(trip, actorId, actorType)
     if (trip.status !== 'completed') throw errors.unprocessable('Can only rate completed trips')
 
     const existingRating = await ridesRepository.getRating(tripId)
     if (existingRating) throw errors.conflict('Trip already rated')
-
-    if (actorType === 'rider' && trip.riderId !== actorId) throw errors.forbidden('Not your trip')
-    if (actorType === 'driver' && trip.driverId !== actorId) throw errors.forbidden('Not your trip')
 
     const data = actorType === 'rider'
       ? { driverRating: rating, driverComment: comment }

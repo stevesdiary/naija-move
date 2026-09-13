@@ -9,13 +9,25 @@ import {
   type CreateSurgeWindowBody,
 } from './pricing.schema.js'
 import { pricingService } from './pricing.service.js'
+import { maps } from '../../providers/maps.js'
+import { riderIdFor } from '../../lib/actors.js'
 
 export async function pricingRoutes(app: FastifyInstance) {
   // Fare quote — works anonymously (pre-auth) and binds to the rider when a token is sent
   app.post<{ Body: QuoteRequestBody }>('/quote', { preHandler: optionalAuthenticate }, async (req) => {
     const body = quoteRequestSchema.parse(req.body)
-    const riderId = req.user?.sub ?? 'anonymous'
-    return pricingService.getQuote({ ...body, riderId })
+    // Quotes are bound to the rider *profile* id (what trips reference), or null when unauthenticated.
+    const riderId = req.user ? await riderIdFor(req.user.sub) : null
+    const route = await maps.getRoute(
+      { lat: body.pickupLat, lng: body.pickupLng },
+      { lat: body.destinationLat, lng: body.destinationLng },
+    )
+    return pricingService.getQuote({
+      ...body,
+      distanceMeters: route.distanceMeters,
+      durationSeconds: route.durationSeconds,
+      riderId,
+    })
   })
 
   // Admin: manage pricing configs

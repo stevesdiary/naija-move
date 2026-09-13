@@ -3,6 +3,7 @@ import { authenticate, authorize } from '../../lib/rbac.js'
 import { dispatchService } from './dispatch.service.js'
 import { ridesRepository } from '../rides/rides.repository.js'
 import { errors } from '../../lib/errors.js'
+import { driverIdFor } from '../../lib/actors.js'
 
 export async function dispatchRoutes(app: FastifyInstance) {
   // Admin: manually trigger dispatch for a stuck trip
@@ -42,7 +43,7 @@ export async function dispatchRoutes(app: FastifyInstance) {
     '/offers/me',
     { preHandler: [authenticate, authorize('driver')] },
     async (req) => {
-      const offers = await ridesRepository.getOffersForDriver(req.user.sub)
+      const offers = await ridesRepository.getOffersForDriver(await driverIdFor(req.user.sub))
       return { offers }
     },
   )

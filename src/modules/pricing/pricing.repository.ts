@@ -61,7 +61,7 @@ export const pricingRepository = {
   },
 
   async createFareQuote(data: {
-    riderId: string
+    riderId: string | null
     pricingConfigId: string
     pickupLat: number
     pickupLng: number

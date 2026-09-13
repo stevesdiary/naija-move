@@ -7,8 +7,7 @@ export const quoteRequestSchema = z.object({
   pickupLng: z.number().min(-180).max(180),
   destinationLat: z.number().min(-90).max(90),
   destinationLng: z.number().min(-180).max(180),
-  distanceMeters: z.number().int().positive(),
-  durationSeconds: z.number().int().positive(),
+  // distance/duration are computed server-side from the coordinates — never trusted from the client
 })
 
 export const createConfigSchema = z.object({
