@@ -1,5 +1,5 @@
-import { neon } from '@neondatabase/serverless'
-import { drizzle } from 'drizzle-orm/neon-http'
+import pg from 'pg'
+import { drizzle } from 'drizzle-orm/node-postgres'
 import { env } from '../config/env.js'
 import * as identitySchema from './schema/identity.js'
 import * as ridersSchema from './schema/riders.js'
@@ -22,9 +22,39 @@ import * as supportSchema from './schema/support.js'
 import * as promotionsSchema from './schema/promotions.js'
 import * as fraudSchema from './schema/fraud.js'
 
-const sql = neon(env.DATABASE_URL)
+/**
+ * Standard node-postgres pool. The database is a managed Postgres (Aiven), so
+ * the Neon-specific serverless client cannot reach it; `pg` speaks the wire
+ * protocol and supports the transactions the ledger paths need.
+ *
+ * TLS: when DATABASE_CERT is set the server certificate is verified against
+ * that CA (no `rejectUnauthorized: false` — that would accept any MITM cert).
+ */
+// pg lets values parsed from the connection string override explicit options,
+// and `?sslmode=require` parses to a bare `ssl: true` (system CAs only) which
+// would discard the pinned CA below — so strip it and configure TLS explicitly.
+const connectionUrl = new URL(env.DATABASE_URL)
+const sslMode = connectionUrl.searchParams.get('sslmode')
+connectionUrl.searchParams.delete('sslmode')
+const wantsTls = env.DATABASE_CERT !== undefined || (sslMode !== null && sslMode !== 'disable')
 
-export const db = drizzle(sql, {
+export const pool = new pg.Pool({
+  connectionString: connectionUrl.toString(),
+  ssl: env.DATABASE_CERT
+    ? { ca: env.DATABASE_CERT, rejectUnauthorized: true }
+    : wantsTls
+      ? { rejectUnauthorized: true } // system CA store (e.g. Neon, RDS with public CAs)
+      : undefined,
+  max: 10,
+  idleTimeoutMillis: 30_000,
+  connectionTimeoutMillis: 10_000,
+})
+
+pool.on('error', (err) => {
+  console.error('Postgres pool error:', err)
+})
+
+export const db = drizzle(pool, {
   schema: {
     ...identitySchema,
     ...ridersSchema,
@@ -50,3 +80,4 @@ export const db = drizzle(sql, {
 })
 
 export type DB = typeof db
+export type Tx = Parameters<Parameters<DB['transaction']>[0]>[0]
