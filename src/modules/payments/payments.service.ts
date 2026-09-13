@@ -3,20 +3,25 @@ import { pricingService } from '../pricing/pricing.service.js'
 import { ledgerRepository } from './ledger.repository.js'
 import { walletService } from './wallet.service.js'
 import { ridesService } from '../rides/rides.service.js'
+import { ridesRepository } from '../rides/rides.repository.js'
 import { errors } from '../../lib/errors.js'
 import { assertIdempotent } from '../../lib/idempotency.js'
 import { v4 as uuid } from 'uuid'
+import { db } from '../../db/index.js'
 
 const PLATFORM_FEE_PERCENT = 0.08 // 8%
 
 export const paymentsService = {
-  async initializePayment(params: {
-    riderId: string
-    tripId: string
-    amountKobo: number
-    email: string
-    metadata?: Record<string, unknown>
-  }) {
+  async initializePayment(params: { riderId: string; tripId: string; email: string }) {
+    // Amount and ownership come from the trip row, never from the request.
+    const trip = await ridesService.getTrip(params.tripId)
+    if (trip.riderId !== params.riderId) throw errors.forbidden('Not your trip')
+    if (trip.status !== 'completed') throw errors.unprocessable('Trip is not ready for payment')
+    if (trip.paymentMethod !== 'card') throw errors.unprocessable('Trip is not payable by card')
+
+    const amountKobo = (trip.finalFareKobo ?? trip.estimatedFareKobo ?? 0) + (trip.tipKobo ?? 0)
+    if (amountKobo <= 0) throw errors.unprocessable('Trip has no payable amount')
+
     const idempotencyKey = `payment:${params.tripId}:${params.riderId}`
     await assertIdempotent(idempotencyKey)
 
@@ -24,9 +29,9 @@ export const paymentsService = {
 
     const result = await paystack.initialize(
       params.email,
-      params.amountKobo,
+      amountKobo,
       reference,
-      { ...params.metadata, tripId: params.tripId, riderId: params.riderId },
+      { tripId: params.tripId, riderId: params.riderId },
     )
 
     return {
@@ -65,9 +70,23 @@ export const paymentsService = {
     }
   },
 
-  async verifyPayment(reference: string) {
+  /**
+   * References are minted here as `trip_<tripId>_<ts>` / `topup_<ownerId>_<ts>`,
+   * so ownership can be checked from the reference itself before touching Paystack.
+   */
+  async verifyPayment(reference: string, actor: { userId: string; riderId?: string }) {
+    const m = /^(trip|topup)_([0-9a-f-]{36})_\d+$/.exec(reference)
+    if (!m) throw errors.notFound('Unknown payment reference')
+    const [, kind, id] = m
+    if (kind === 'topup') {
+      if (id !== actor.userId) throw errors.forbidden('Not your payment')
+    } else {
+      const trip = await ridesService.getTrip(id)
+      if (!actor.riderId || trip.riderId !== actor.riderId) throw errors.forbidden('Not your payment')
+    }
     const result = await paystack.verify(reference)
-    return result
+    // Expose only what the client needs — not the payer's card/metadata blob.
+    return { status: result.status, amount: result.amount, reference: result.reference, channel: result.channel }
   },
 
   async handlePaystackWebhook(payload: any, signature: string) {
@@ -108,8 +127,13 @@ export const paymentsService = {
 
   async handleChargeSuccess(data: any) {
     const reference = data.reference
-    const amountKobo = data.amount
+    const amountKobo = Number(data.amount)
     const metadata = data.metadata || {}
+
+    if (data.status !== 'success' || !Number.isInteger(amountKobo) || amountKobo <= 0) {
+      console.error('charge.success webhook with non-success status or bad amount', { reference, status: data.status })
+      return
+    }
 
     // --- Wallet top-up via card or bank transfer ---
     if (metadata.context === 'wallet_topup') {
@@ -134,37 +158,51 @@ export const paymentsService = {
     const trip = await ridesService.getTrip(tripId)
     if (!trip) throw errors.notFound('Trip not found')
 
+    const expectedKobo = (trip.finalFareKobo ?? trip.estimatedFareKobo ?? 0) + (trip.tipKobo ?? 0)
+    if (amountKobo !== expectedKobo) {
+      console.error('charge.success amount does not match trip fare', { reference, tripId, amountKobo, expectedKobo })
+      return
+    }
+
     const platformFeeKobo = Math.round(amountKobo * PLATFORM_FEE_PERCENT)
     const driverAmountKobo = amountKobo - platformFeeKobo
     const correlationId = uuid()
 
-    await ledgerRepository.createDoubleEntry({
-      correlationId,
-      debitAccount: 'rider_wallet',
-      creditAccount: 'platform_revenue',
-      amountKobo: platformFeeKobo,
-      currency: 'NGN',
-      description: `Platform fee for trip ${tripId}`,
-      referenceId: tripId,
-      referenceType: 'trip',
-      actorId: riderId,
-      metadata: { paymentReference: reference },
+    // Fee split and driver payable are one accounting event — post both or neither.
+    await db.transaction(async (tx) => {
+      await ledgerRepository.createDoubleEntry({
+        correlationId,
+        debitAccount: 'rider_wallet',
+        creditAccount: 'platform_revenue',
+        amountKobo: platformFeeKobo,
+        currency: 'NGN',
+        description: `Platform fee for trip ${tripId}`,
+        referenceId: tripId,
+        referenceType: 'trip',
+        actorId: riderId,
+        metadata: { paymentReference: reference },
+      }, tx)
+
+      await ledgerRepository.createDoubleEntry({
+        correlationId: `${correlationId}_driver`,
+        debitAccount: 'rider_wallet',
+        creditAccount: 'driver_payable',
+        amountKobo: driverAmountKobo,
+        currency: 'NGN',
+        description: `Driver payable for trip ${tripId}`,
+        referenceId: tripId,
+        referenceType: 'trip',
+        actorId: riderId,
+        metadata: { paymentReference: reference, driverId: trip.driverId },
+      }, tx)
     })
 
-    await ledgerRepository.createDoubleEntry({
-      correlationId: `${correlationId}_driver`,
-      debitAccount: 'rider_wallet',
-      creditAccount: 'driver_payable',
-      amountKobo: driverAmountKobo,
-      currency: 'NGN',
-      description: `Driver payable for trip ${tripId}`,
-      referenceId: tripId,
-      referenceType: 'trip',
-      actorId: riderId,
-      metadata: { paymentReference: reference, driverId: trip.driverId },
+    // The driver already completed the trip; the ledger entries above are the record of payment.
+    await ridesRepository.logEvent(tripId, 'payment_received', riderId, 'rider', {
+      paymentReference: reference,
+      amountKobo,
+      channel: data.channel ?? 'card',
     })
-
-    await ridesService.completeTrip(tripId, trip.driverId!, trip.distanceMeters!, trip.durationSeconds!)
   },
 
   async handleChargeFailed(data: any) {

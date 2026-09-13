@@ -40,7 +40,7 @@ export const paystack = {
     }),
 
   verify: (reference: string) =>
-    call<VerifyResult>('GET', `/transaction/verify/${reference}`),
+    call<VerifyResult>('GET', `/transaction/verify/${encodeURIComponent(reference)}`),
 
   transfer: (amountKobo: number, recipientCode: string, reference: string, reason: string) =>
     call<TransferResult>('POST', '/transfer', {

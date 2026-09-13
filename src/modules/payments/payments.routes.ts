@@ -16,6 +16,8 @@ import { paymentsService } from './payments.service.js'
 import { walletService } from './wallet.service.js'
 import { env } from '../../config/env.js'
 import crypto from 'crypto'
+import { riderIdFor } from '../../lib/actors.js'
+import { clampLimit, clampOffset } from '../../lib/pagination.js'
 
 export async function paymentRoutes(app: FastifyInstance) {
   // Initialize payment for a trip
@@ -24,25 +26,19 @@ export async function paymentRoutes(app: FastifyInstance) {
     { preHandler: [authenticate, authorize('rider')] },
     async (req) => {
       const body = initializePaymentSchema.parse(req.body)
-      
-      // Get trip to verify ownership and get amount
-      // In production, fetch trip and calculate amount
-      const amountKobo = 500000 // placeholder - 5000 NGN
-      
       return paymentsService.initializePayment({
-        riderId: req.user.sub,
+        riderId: await riderIdFor(req.user.sub),
         tripId: body.tripId,
-        amountKobo,
         email: body.email,
-        metadata: body.metadata,
       })
     }
   )
 
   // Verify payment
-  app.get('/verify/:reference', { preHandler: [authenticate, authorize('rider')] }, async (req) => {
+  app.get('/verify/:reference', { preHandler: [authenticate] }, async (req) => {
     const { reference } = req.params as { reference: string }
-    return paymentsService.verifyPayment(reference)
+    const riderId = req.user.role === 'rider' ? await riderIdFor(req.user.sub) : undefined
+    return paymentsService.verifyPayment(reference, { userId: req.user.sub, riderId })
   })
 
   // Refund
@@ -67,7 +63,7 @@ export async function paymentRoutes(app: FastifyInstance) {
   app.get('/wallet/transactions', { preHandler: [authenticate] }, async (req) => {
     const { limit, offset } = req.query as { limit?: string; offset?: string }
     const role = req.user.role as 'rider' | 'driver' | 'corporate' | 'fleet_owner'
-    return walletService.getWalletTransactions(req.user.sub, role, limit ? parseInt(limit) : 50, offset ? parseInt(offset) : 0)
+    return walletService.getWalletTransactions(req.user.sub, role, clampLimit(limit, 50), clampOffset(offset))
   })
 
   // Initialize wallet top-up — returns Paystack checkout URL
@@ -87,50 +83,41 @@ export async function paymentRoutes(app: FastifyInstance) {
     }
   )
 
-  // Top up wallet directly (internal use — called after webhook confirms payment)
-  app.post<{ Body: { amountKobo: number; reference: string; description: string } }>(
-    '/wallet/topup',
-    { preHandler: [authenticate] },
-    async (req) => {
-      const { amountKobo, reference, description } = req.body
-      const role = req.user.role as 'rider' | 'driver' | 'corporate' | 'fleet_owner'
-      return walletService.topUp(req.user.sub, role, amountKobo, reference, description)
-    }
-  )
+  // Paystack webhook — no bearer auth; authenticity comes from the HMAC-SHA512 over the *raw* body.
+  // Re-serialising the parsed JSON would change whitespace/number formatting and break the MAC,
+  // so this child context swaps in a JSON parser that keeps the original bytes.
+  await app.register(async (webhooks) => {
+    webhooks.addContentTypeParser('application/json', { parseAs: 'buffer' }, (req, body, done) => {
+      ;(req as typeof req & { rawBody: Buffer }).rawBody = body as Buffer
+      try {
+        done(null, JSON.parse((body as Buffer).toString('utf8')))
+      } catch (err) {
+        done(err as Error, undefined)
+      }
+    })
 
-  // Withdraw from wallet
-  app.post<{ Body: { amountKobo: number; reference: string; description: string } }>(
-    '/wallet/withdraw',
-    { preHandler: [authenticate] },
-    async (req) => {
-      const { amountKobo, reference, description } = req.body
-      const role = req.user.role as 'rider' | 'driver' | 'corporate' | 'fleet_owner'
-      return walletService.withdraw(req.user.sub, role, amountKobo, reference, description)
-    }
-  )
+    webhooks.post('/webhooks/paystack', async (req, reply) => {
+      const signature = req.headers['x-paystack-signature']
+      const rawBody = (req as typeof req & { rawBody?: Buffer }).rawBody
+      if (typeof signature !== 'string' || !rawBody) return reply.status(400).send({ error: 'Missing signature' })
 
-  // Paystack webhook (no auth, verified by HMAC-SHA512 signature)
-  // Handles: charge.success (card + bank transfer), transfer.success (payouts + inbound transfers)
-  app.post<{ Body: WebhookBody }>('/webhooks/paystack', async (req, reply) => {
-    const signature = req.headers['x-paystack-signature'] as string
-    if (!signature) return reply.status(400).send({ error: 'Missing signature' })
+      const expected = crypto.createHmac('sha512', env.PAYSTACK_WEBHOOK_SECRET).update(rawBody).digest('hex')
+      const given = Buffer.from(signature, 'utf8')
+      const want = Buffer.from(expected, 'utf8')
+      if (given.length !== want.length || !crypto.timingSafeEqual(given, want)) {
+        return reply.status(400).send({ error: 'Invalid signature' })
+      }
 
-    const rawBody = JSON.stringify(req.body)
-    const expectedSignature = crypto
-      .createHmac('sha512', env.PAYSTACK_WEBHOOK_SECRET)
-      .update(rawBody)
-      .digest('hex')
+      const parsed = webhookSchema.safeParse(req.body)
+      if (!parsed.success) return reply.status(400).send({ error: 'Malformed webhook body' })
 
-    if (signature !== expectedSignature) {
-      return reply.status(400).send({ error: 'Invalid signature' })
-    }
+      // Acknowledge immediately — Paystack expects 200 within 5s
+      reply.status(200).send({ received: true })
 
-    // Acknowledge immediately — Paystack expects 200 within 5s
-    reply.status(200).send({ received: true })
-
-    // Process asynchronously after response sent
-    paymentsService.handlePaystackWebhook(req.body, signature).catch((err) => {
-      console.error('Webhook processing error:', err)
+      // Process asynchronously after response sent
+      paymentsService.handlePaystackWebhook(parsed.data, signature).catch((err) => {
+        req.log.error({ err, event: parsed.data.event }, 'Webhook processing error')
+      })
     })
   })
 }

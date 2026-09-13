@@ -1,8 +1,10 @@
-import { db } from '../../db/index.js'
+import { db, type Tx } from '../../db/index.js'
 import { ledgerEntries, wallets, walletTransactions } from '../../db/schema/index.js'
 import { eq, and, sum, sql } from 'drizzle-orm'
 import { v4 as uuid } from 'uuid'
 import { ledgerAccountEnum } from '../../db/schema/ledger.js'
+
+type Executor = typeof db | Tx
 
 export const ledgerRepository = {
   async createEntry(data: {
@@ -16,9 +18,9 @@ export const ledgerRepository = {
     referenceType: string
     actorId?: string
     metadata?: Record<string, unknown>
-  }) {
+  }, exec: Executor = db) {
     const id = uuid()
-    await db.insert(ledgerEntries).values({
+    await exec.insert(ledgerEntries).values({
       id,
       correlationId: data.correlationId,
       type: data.type,
@@ -31,9 +33,10 @@ export const ledgerRepository = {
       actorId: data.actorId,
       metadata: data.metadata ? JSON.stringify(data.metadata) : null,
     })
-    return db.query.ledgerEntries.findFirst({ where: eq(ledgerEntries.id, id) })
+    return exec.query.ledgerEntries.findFirst({ where: eq(ledgerEntries.id, id) })
   },
 
+  /** Debit + credit are written in one transaction — a half-posted pair must never survive a crash. */
   async createDoubleEntry(params: {
     correlationId: string
     debitAccount: string
@@ -45,34 +48,40 @@ export const ledgerRepository = {
     referenceType: string
     actorId?: string
     metadata?: Record<string, unknown>
-  }) {
-    const debit = await this.createEntry({
-      correlationId: params.correlationId,
-      type: 'debit',
+  }, exec?: Tx) {
+    if (!Number.isInteger(params.amountKobo) || params.amountKobo <= 0) {
+      throw new Error(`Ledger amounts must be positive integers, got ${params.amountKobo}`)
+    }
+    const post = async (tx: Executor) => {
+      const debit = await this.createEntry({
+        correlationId: params.correlationId,
+        type: 'debit',
       account: params.debitAccount,
       amountKobo: params.amountKobo,
       currency: params.currency,
       description: params.description,
       referenceId: params.referenceId,
       referenceType: params.referenceType,
-      actorId: params.actorId,
-      metadata: params.metadata,
-    })
+        actorId: params.actorId,
+        metadata: params.metadata,
+      }, tx)
 
-    const credit = await this.createEntry({
-      correlationId: params.correlationId,
-      type: 'credit',
-      account: params.creditAccount,
-      amountKobo: params.amountKobo,
-      currency: params.currency,
-      description: params.description,
-      referenceId: params.referenceId,
-      referenceType: params.referenceType,
-      actorId: params.actorId,
-      metadata: params.metadata,
-    })
+      const credit = await this.createEntry({
+        correlationId: params.correlationId,
+        type: 'credit',
+        account: params.creditAccount,
+        amountKobo: params.amountKobo,
+        currency: params.currency,
+        description: params.description,
+        referenceId: params.referenceId,
+        referenceType: params.referenceType,
+        actorId: params.actorId,
+        metadata: params.metadata,
+      }, tx)
 
-    return { debit, credit }
+      return { debit, credit }
+    }
+    return exec ? post(exec) : db.transaction(post)
   },
 
   async getEntriesForReference(referenceId: string, referenceType: string) {
@@ -104,11 +113,11 @@ export const ledgerRepository = {
     return wallet
   },
 
-  async getWalletBalance(ownerId: string, ownerType: 'rider' | 'driver' | 'corporate' | 'fleet_owner') {
+  async getWalletBalance(ownerId: string, ownerType: 'rider' | 'driver' | 'corporate' | 'fleet_owner', exec: Executor = db) {
     await this.getOrCreateWallet(ownerId, ownerType)
     const account = this.getLedgerAccountForWallet(ownerType)
 
-    const result = await db
+    const result = await exec
       .select({
         credits: sql<number>`COALESCE(SUM(CASE WHEN type = 'credit' THEN amount_kobo ELSE 0 END), 0)`,
         debits: sql<number>`COALESCE(SUM(CASE WHEN type = 'debit' THEN amount_kobo ELSE 0 END), 0)`,
@@ -131,6 +140,11 @@ export const ledgerRepository = {
     })
   },
 
+  /** Serialises concurrent balance-changing operations on one wallet for the rest of the transaction. */
+  async lockWallet(walletId: string, tx: Tx) {
+    await tx.execute(sql`SELECT id FROM wallets WHERE id = ${walletId} FOR UPDATE`)
+  },
+
   async createWalletTransaction(data: {
     walletId: string
     ledgerEntryId: string
@@ -139,9 +153,9 @@ export const ledgerRepository = {
     description: string
     referenceId?: string
     referenceType?: string
-  }) {
+  }, exec: Executor = db) {
     const id = uuid()
-    await db.insert(walletTransactions).values({
+    await exec.insert(walletTransactions).values({
       id,
       walletId: data.walletId,
       ledgerEntryId: data.ledgerEntryId,
@@ -151,7 +165,7 @@ export const ledgerRepository = {
       referenceId: data.referenceId,
       referenceType: data.referenceType,
     })
-    return db.query.walletTransactions.findFirst({ where: eq(walletTransactions.id, id) })
+    return exec.query.walletTransactions.findFirst({ where: eq(walletTransactions.id, id) })
   },
 
 getLedgerAccountForWallet(ownerType: 'rider' | 'driver' | 'corporate' | 'fleet_owner'): typeof ledgerAccountEnum.enumValues[number] {

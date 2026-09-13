@@ -1,9 +1,10 @@
 import { z } from 'zod'
 
+// No client-supplied metadata: the webhook branches on metadata.context, so
+// letting the payer set it would let them turn a trip payment into a wallet credit.
 export const initializePaymentSchema = z.object({
   tripId: z.string().uuid(),
   email: z.string().email(),
-  metadata: z.record(z.string(), z.unknown()).optional(),
 })
 
 export const walletTopupSchema = z.object({
