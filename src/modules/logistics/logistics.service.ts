@@ -3,6 +3,7 @@ import { logisticsRepository } from './logistics.repository.js'
 import { errors } from '../../lib/errors.js'
 import { sms } from '../../providers/sms.js'
 import { redis } from '../../lib/idempotency.js'
+import { uploadsService } from '../uploads/uploads.service.js'
 
 const OTP_MAX_ATTEMPTS = 5
 const OTP_ATTEMPT_WINDOW = 60 * 60 // 1h
@@ -102,11 +103,12 @@ export const logisticsService = {
     return logisticsRepository.updateJobStatus(jobId, 'delivered', driverId)
   },
 
-  async submitProof(jobId: string, driverId: string, data: { photoUrl?: string; recipientConfirmed?: string }) {
+  async submitProof(jobId: string, actor: { driverId: string; userId: string }, data: { photoKey?: string; recipientConfirmed?: string }) {
     const job = await loadJob(jobId)
-    assertAssignedDriver(job, driverId)
+    assertAssignedDriver(job, actor.driverId)
     if (job.status !== 'picked_up') throw errors.unprocessable('Job not picked up yet')
-    return logisticsRepository.updateProof(jobId, data)
+    if (data.photoKey) await uploadsService.assertOwnedUpload(data.photoKey, actor.userId, 'delivery_proof')
+    return logisticsRepository.updateProof(jobId, { photoUrl: data.photoKey, recipientConfirmed: data.recipientConfirmed })
   },
 
   async verifyDeliveryOtp(jobId: string, driverId: string, otp: string) {

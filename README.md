@@ -102,6 +102,7 @@ All variables are required unless a default is listed. The server exits on boot 
 | `PAYSTACK_SECRET_KEY` / `PAYSTACK_WEBHOOK_SECRET` | Payments + webhook verification |
 | `INTERNAL_JOB_SECRET` | `openssl rand -hex 32`; guards `/internal` routes and `x-internal-secret` callers |
 | `APP_URL` | Public URL QStash calls back to |
+| `B2_ENDPOINT` / `B2_REGION` / `B2_KEY_ID` / `B2_APPLICATION_KEY` / `B2_BUCKET` | Backblaze B2 (S3-compatible). All five or none; uploads return 501 when unset |
 | `TRUST_PROXY` | Proxy hops to trust for `X-Forwarded-For` (default `0`). Set to `1` behind a load balancer, or rate limiting keys on the LB's IP |
 | `CORS_ORIGINS` | Comma-separated browser origins (default `http://localhost:5173`, the dashboard dev server) |
 
@@ -211,6 +212,29 @@ that trip's rider or driver. The upgrade is refused with 401/403 otherwise, and
 with 422 once the trip is completed or cancelled.
 
 Driver location is cached in Redis (`loc:{tripId}`, short TTL) and fanned out to the rider channel on each update. Trip state events (`arrived`, `started`, `completed`, `cancelled`) are emitted on the same channels.
+
+### File uploads (Backblaze B2)
+
+Files go **directly from the client to a private B2 bucket** via the S3 API;
+the server only hands out presigned URLs, so no B2 credentials ever reach an
+app.
+
+```
+POST /uploads/presign { purpose, contentType, sizeBytes }
+  → { key, uploadUrl, headers, expiresAt }        # 15-min PUT URL bound to type + length
+PUT  <uploadUrl>  (send `headers` verbatim)        # straight to B2
+POST /drivers/documents { type, fileKey: key }     # server checks key ∈ your namespace and object exists
+GET  /drivers/documents/:id/url → { url }          # 10-min presigned read; owner or admin
+```
+
+Keys are `<purpose>/<userId>/<uuid>.<ext>`, so ownership is verifiable from the
+path alone. Allowed types: JPEG, PNG, WebP, PDF; max 10 MiB. `npm run
+storage:check` round-trips a test object against the configured bucket.
+
+B2 setup: create a **private** bucket, then an application key restricted to
+that bucket with read/write. If the admin dashboard will upload from a
+browser, add a CORS rule on the bucket for the dashboard origin (mobile uploads
+need none).
 
 ### Rate limiting
 

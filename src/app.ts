@@ -41,6 +41,7 @@ import { mapsRoutes } from './modules/maps/maps.routes.js'
 import { dispatchRoutes } from './modules/dispatch/dispatch.routes.js'
 import { ledgerRoutes } from './modules/ledger/ledger.routes.js'
 import { walletRoutes } from './modules/wallets/wallets.routes.js'
+import { uploadRoutes } from './modules/uploads/uploads.routes.js'
 
 export async function buildApp() {
   const app = Fastify({
@@ -127,6 +128,7 @@ export async function buildApp() {
   await app.register(dispatchRoutes, { prefix: '/dispatch' })
   await app.register(ledgerRoutes, { prefix: '/ledger' })
   await app.register(walletRoutes, { prefix: '/wallet' })
+  await app.register(uploadRoutes, { prefix: '/uploads' })
 
   return app
 }

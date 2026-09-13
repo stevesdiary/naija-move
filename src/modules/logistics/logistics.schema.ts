@@ -18,7 +18,8 @@ export const createDeliveryJobSchema = z.object({
 
 // OTP is deliberately absent — it is generated server-side and only checked via /verify-otp.
 export const submitProofSchema = z.object({
-  photoUrl: z.string().url().optional(),
+  /** Object key returned by POST /uploads/presign (purpose `delivery_proof`). */
+  photoKey: z.string().min(1).max(200).optional(),
   recipientConfirmed: z.string().max(200).optional(),
 })
 

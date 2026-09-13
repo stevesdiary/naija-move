@@ -24,6 +24,8 @@ tags:
     description: OTP-based authentication
   - name: Riders
     description: Rider profile and preferences
+  - name: Uploads
+    description: Presigned direct-to-storage uploads (Backblaze B2)
   - name: Drivers
     description: Driver profile, availability, documents
   - name: Vehicles
@@ -626,7 +628,12 @@ paths:
                     expiresAt: "2026-09-25T00:00:00Z"
     post:
       tags: [Drivers]
-      summary: Upload a document
+      summary: Record a document
+      description: |
+        Upload the file first with `POST /uploads/presign` (purpose `driver_document`)
+        and PUT the bytes to the returned URL; then submit the `key` here as `fileKey`.
+        The server verifies the key was issued to you for this purpose and that the
+        object exists before storing it.
       security:
         - bearerAuth: []
       requestBody:
@@ -640,9 +647,9 @@ paths:
                 type:
                   type: string
                   enum: [drivers_licence, vehicle_registration, insurance, inspection, background_check, profile_photo]
-                fileUrl:
+                fileKey:
                   type: string
-                  format: uri
+                  description: Object key from /uploads/presign
                 referenceNumber:
                   type: string
                 expiresAt:
@@ -650,12 +657,127 @@ paths:
                   format: date-time
             example:
               type: "drivers_licence"
-              fileUrl: "https://storage.naijamove.com/docs/licence-emeka.jpg"
+              fileKey: "driver-documents/usr_01HZ9K2M3N4P5Q6R7S8T9U0V/3f1c…/a1b2.jpg"
               referenceNumber: "LIC-2024-00482"
               expiresAt: "2028-06-02T00:00:00Z"
       responses:
         "200":
-          description: Document uploaded
+          description: Document recorded (status pending review)
+        "403":
+          description: fileKey was not issued to this user for driver documents
+        "422":
+          description: File has not been uploaded yet
+
+  /drivers/documents/{documentId}/url:
+    get:
+      tags: [Drivers]
+      summary: Short-lived read URL for a document
+      description: Owner (driver) or admin. URL expires in 10 minutes.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: documentId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Presigned GET URL
+          content:
+            application/json:
+              example:
+                url: "https://s3.us-west-004.backblazeb2.com/naijamove-uploads/driver-documents/…?X-Amz-Signature=…"
+                expiresAt: "2026-09-13T12:10:00Z"
+        "403": { description: Not your document }
+        "404": { description: Document not found }
+
+  /drivers/me/photo:
+    post:
+      tags: [Drivers]
+      summary: Attach an uploaded profile photo
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [fileKey]
+              properties:
+                fileKey: { type: string, description: Object key from /uploads/presign (purpose profile_photo) }
+      responses:
+        "200":
+          description: Photo attached
+          content:
+            application/json:
+              example: { avatarKey: "profile-photos/usr_…/….jpg" }
+
+  /drivers/{driverId}/documents:
+    get:
+      tags: [Drivers]
+      summary: List a driver's documents (admin)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: driverId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Documents for review
+        "404":
+          description: Driver not found
+
+  /uploads/presign:
+    post:
+      tags: [Uploads]
+      summary: Get a one-shot upload URL
+      description: |
+        Step 1 of any file upload. Returns a presigned PUT URL for a private
+        Backblaze B2 bucket, valid 15 minutes and bound to the exact content type
+        and byte length. PUT the file to `uploadUrl` sending `headers` verbatim,
+        then submit `key` to the endpoint that owns the record. Rate limited to
+        30/min per user. Returns 501 when storage is not configured.
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [purpose, contentType, sizeBytes]
+              properties:
+                purpose:
+                  type: string
+                  enum: [driver_document, profile_photo, vehicle_photo, delivery_proof, support_attachment]
+                contentType:
+                  type: string
+                  enum: [image/jpeg, image/png, image/webp, application/pdf]
+                sizeBytes:
+                  type: integer
+                  maximum: 10485760
+            example:
+              purpose: "driver_document"
+              contentType: "image/jpeg"
+              sizeBytes: 482113
+      responses:
+        "200":
+          description: Presigned upload
+          content:
+            application/json:
+              example:
+                key: "driver-documents/usr_01HZ…/6d3e….jpg"
+                uploadUrl: "https://s3.us-west-004.backblazeb2.com/naijamove-uploads/driver-documents/…?X-Amz-Signature=…"
+                headers:
+                  Content-Type: "image/jpeg"
+                  Content-Length: "482113"
+                expiresAt: "2026-09-13T12:15:00Z"
+                maxBytes: 10485760
+        "400": { description: Unsupported type or file too large }
+        "501": { description: File storage not configured }
 
   /drivers/{driverId}/approve:
     post:

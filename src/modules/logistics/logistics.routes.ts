@@ -62,7 +62,7 @@ export async function logisticsRoutes(app: FastifyInstance) {
     async (req) => {
       const { jobId } = req.params
       const body = submitProofSchema.parse(req.body)
-      return logisticsService.submitProof(jobId, await driverIdFor(req.user.sub), body)
+      return logisticsService.submitProof(jobId, { driverId: await driverIdFor(req.user.sub), userId: req.user.sub }, body)
     },
   )
 

@@ -84,6 +84,10 @@ export const driversRepository = {
     })
   },
 
+  async findDocumentById(id: string) {
+    return db.query.driverDocuments.findFirst({ where: eq(driverDocuments.id, id) })
+  },
+
   async createDocument(driverId: string, data: { type: string; fileUrl?: string; referenceNumber?: string; expiresAt?: Date }) {
     const id = uuid()
     await db.insert(driverDocuments).values({

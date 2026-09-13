@@ -2,6 +2,7 @@ import { driversRepository } from './drivers.repository.js'
 import { errors } from '../../lib/errors.js'
 import { identityRepository } from '../identity/identity.repository.js'
 import { issueSession } from '../identity/identity.service.js'
+import { uploadsService } from '../uploads/uploads.service.js'
 
 export const driversService = {
   /** A rider opts in to driving: create the profile, switch the account role, and re-issue tokens. */
@@ -55,10 +56,37 @@ export const driversService = {
     return driversRepository.listDocuments(driver.id)
   },
 
-  async uploadDocument(userId: string, data: { type: string; fileUrl?: string; referenceNumber?: string; expiresAt?: Date }) {
+  /** `fileKey` must have been presigned for this user as a driver_document and already uploaded. */
+  async uploadDocument(userId: string, data: { type: string; fileKey?: string; referenceNumber?: string; expiresAt?: Date }) {
     const driver = await driversRepository.findByUserId(userId)
     if (!driver) throw errors.notFound('Driver profile not found')
-    return driversRepository.createDocument(driver.id, data)
+    if (data.fileKey) await uploadsService.assertOwnedUpload(data.fileKey, userId, 'driver_document')
+    // file_url holds the storage key; it is only ever exchanged for a presigned URL, never served raw.
+    return driversRepository.createDocument(driver.id, { type: data.type, fileUrl: data.fileKey, referenceNumber: data.referenceNumber, expiresAt: data.expiresAt })
+  },
+
+  /** Short-lived read URL for a document. Owner or admin only. */
+  async documentUrl(documentId: string, actor: { userId: string; role: string }) {
+    const doc = await driversRepository.findDocumentById(documentId)
+    if (!doc || !doc.fileUrl) throw errors.notFound('Document not found')
+    if (actor.role !== 'admin') {
+      const driver = await driversRepository.findByUserId(actor.userId)
+      if (!driver || driver.id !== doc.driverId) throw errors.forbidden('Not your document')
+    }
+    return uploadsService.downloadUrl(doc.fileUrl)
+  },
+
+  async setProfilePhoto(userId: string, fileKey: string) {
+    await uploadsService.assertOwnedUpload(fileKey, userId, 'profile_photo')
+    await identityRepository.setAvatar(userId, fileKey)
+    return { avatarKey: fileKey }
+  },
+
+  /** Admin review: a driver's documents by driver profile id. */
+  async adminListDocuments(driverId: string) {
+    const driver = await driversRepository.findById(driverId)
+    if (!driver) throw errors.notFound('Driver not found')
+    return driversRepository.listDocuments(driverId)
   },
 
   async getStatusHistory(userId: string) {

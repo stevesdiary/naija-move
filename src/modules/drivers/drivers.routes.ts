@@ -4,11 +4,13 @@ import {
   availabilitySchema,
   locationSchema,
   documentUploadSchema,
+  profilePhotoSchema,
   adminActionSchema,
   type AvailabilityBody,
   type LocationBody,
   type DocumentUploadBody,
   type AdminActionBody,
+  type ProfilePhotoBody,
 } from './drivers.schema.js'
 import { driversService } from './drivers.service.js'
 import { clampLimit, clampOffset } from '../../lib/pagination.js'
@@ -84,6 +86,19 @@ export async function driverRoutes(app: FastifyInstance) {
     })
   })
 
+  // Short-lived read URL for one of my documents (admins may read any)
+  app.get<{ Params: { documentId: string } }>(
+    '/documents/:documentId/url',
+    { preHandler: [authenticate, authorize('driver', 'admin')] },
+    async (req) => driversService.documentUrl(req.params.documentId, { userId: req.user.sub, role: req.user.role }),
+  )
+
+  // Attach an uploaded profile photo
+  app.post<{ Body: ProfilePhotoBody }>('/me/photo', { preHandler: [authenticate, authorize('driver', 'rider')] }, async (req) => {
+    const body = profilePhotoSchema.parse(req.body)
+    return driversService.setProfilePhoto(req.user.sub, body.fileKey)
+  })
+
   app.get('/status-history', { preHandler: [authenticate, authorize('driver')] }, async (req) => {
     return driversService.getStatusHistory(req.user.sub)
   })
@@ -97,6 +112,12 @@ export async function driverRoutes(app: FastifyInstance) {
       offset: clampOffset(offset),
     })
   })
+
+  app.get<{ Params: { driverId: string } }>(
+    '/:driverId/documents',
+    { preHandler: [authenticate, authorize('admin')] },
+    async (req) => driversService.adminListDocuments(req.params.driverId),
+  )
 
   app.post<{ Body: AdminActionBody; Params: { driverId: string } }>(
     '/:driverId/approve',

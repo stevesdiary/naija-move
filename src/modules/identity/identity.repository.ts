@@ -26,6 +26,10 @@ export const identityRepository = {
     return { id, name: null, role: 'rider', isNew: true, isActive: true }
   },
 
+  async setAvatar(userId: string, avatarKey: string) {
+    await db.update(users).set({ avatarUrl: avatarKey, updatedAt: new Date() }).where(eq(users.id, userId))
+  },
+
   /** Promote a rider to driver. The caller must re-issue tokens so the new role takes effect. */
   async setRole(userId: string, role: UserRole) {
     await db.update(users).set({ role, updatedAt: new Date() }).where(eq(users.id, userId))
