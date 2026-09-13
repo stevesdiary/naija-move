@@ -11,6 +11,7 @@ import {
   type AssignIncidentBody,
 } from './safety.schema.js'
 import { safetyService } from './safety.service.js'
+import { clampLimit, clampOffset } from '../../lib/pagination.js'
 
 export async function safetyRoutes(app: FastifyInstance) {
   // SOS endpoint - high priority
@@ -42,7 +43,7 @@ export async function safetyRoutes(app: FastifyInstance) {
   // Get incident
   app.get('/incidents/:incidentId', { preHandler: [authenticate] }, async (req) => {
     const { incidentId } = req.params as { incidentId: string }
-    return safetyService.getIncident(incidentId)
+    return safetyService.getIncident(incidentId, { userId: req.user.sub, role: req.user.role })
   })
 
   // Update incident status (agent/admin)
@@ -74,14 +75,14 @@ export async function safetyRoutes(app: FastifyInstance) {
     }
     return safetyService.listIncidents({
       status, severity, userId, tripId,
-      limit: limit ? parseInt(limit) : 50,
-      offset: offset ? parseInt(offset) : 0,
+      limit: clampLimit(limit, 50),
+      offset: clampOffset(offset),
     })
   })
 
   // Incident events/history
   app.get('/incidents/:incidentId/events', { preHandler: [authenticate] }, async (req) => {
     const { incidentId } = req.params as { incidentId: string }
-    return safetyService.getIncidentEvents(incidentId)
+    return safetyService.getIncidentEvents(incidentId, { userId: req.user.sub, role: req.user.role })
   })
 }

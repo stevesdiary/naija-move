@@ -38,6 +38,16 @@ export const corporateRepository = {
     return db.query.corporateMembers.findFirst({ where: eq(corporateMembers.id, id) })
   },
 
+  async findMembership(corporateAccountId: string, userId: string) {
+    return db.query.corporateMembers.findFirst({
+      where: and(
+        eq(corporateMembers.corporateAccountId, corporateAccountId),
+        eq(corporateMembers.userId, userId),
+        eq(corporateMembers.isActive, true),
+      ),
+    })
+  },
+
   async findMemberById(id: string) {
     return db.query.corporateMembers.findFirst({ where: eq(corporateMembers.id, id) })
   },

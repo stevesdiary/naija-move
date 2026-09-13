@@ -13,6 +13,7 @@ import {
   type LinkTripBody,
 } from './corporate.schema.js'
 import { corporateService } from './corporate.service.js'
+import { clampLimit, clampOffset } from '../../lib/pagination.js'
 
 export async function corporateRoutes(app: FastifyInstance) {
   // Admin: create corporate account
@@ -24,13 +25,13 @@ export async function corporateRoutes(app: FastifyInstance) {
   // Admin: list corporate accounts
   app.get('/', { preHandler: [authenticate, authorize('admin')] }, async (req) => {
     const { limit, offset } = req.query as { limit?: string; offset?: string }
-    return corporateService.listAccounts(limit ? parseInt(limit) : 20, offset ? parseInt(offset) : 0)
+    return corporateService.listAccounts(clampLimit(limit, 20), clampOffset(offset))
   })
 
   // Get corporate account
   app.get('/:accountId', { preHandler: [authenticate] }, async (req) => {
     const { accountId } = req.params as { accountId: string }
-    return corporateService.getAccount(accountId)
+    return corporateService.getAccount(accountId, { userId: req.user.sub, role: req.user.role })
   })
 
   // Update corporate account (admin)
@@ -57,28 +58,28 @@ export async function corporateRoutes(app: FastifyInstance) {
 
   app.get('/:accountId/members', { preHandler: [authenticate] }, async (req) => {
     const { accountId } = req.params as { accountId: string }
-    return corporateService.listMembers(accountId)
+    return corporateService.listMembers(accountId, { userId: req.user.sub, role: req.user.role })
   })
 
   app.put<{ Body: UpdateMemberBody; Params: { accountId: string; memberId: string } }>(
     '/:accountId/members/:memberId',
     { preHandler: [authenticate, authorize('admin')] },
     async (req) => {
-      const { memberId } = req.params
+      const { accountId, memberId } = req.params
       const body = updateMemberSchema.parse(req.body)
-      return corporateService.updateMember(memberId, body)
+      return corporateService.updateMember(accountId, memberId, body)
     },
   )
 
   app.delete('/:accountId/members/:memberId', { preHandler: [authenticate, authorize('admin')] }, async (req) => {
-    const { memberId } = req.params as { memberId: string }
-    return corporateService.removeMember(memberId)
+    const { accountId, memberId } = req.params as { accountId: string; memberId: string }
+    return corporateService.removeMember(accountId, memberId)
   })
 
   // Wallet
   app.get('/:accountId/wallet', { preHandler: [authenticate] }, async (req) => {
     const { accountId } = req.params as { accountId: string }
-    return corporateService.getWallet(accountId)
+    return corporateService.getWallet(accountId, { userId: req.user.sub, role: req.user.role })
   })
 
   // Corporate trips
@@ -95,6 +96,6 @@ export async function corporateRoutes(app: FastifyInstance) {
   app.get('/:accountId/trips', { preHandler: [authenticate] }, async (req) => {
     const { accountId } = req.params as { accountId: string }
     const { limit, offset } = req.query as { limit?: string; offset?: string }
-    return corporateService.listCorporateTrips(accountId, limit ? parseInt(limit) : 20, offset ? parseInt(offset) : 0)
+    return corporateService.listCorporateTrips(accountId, { userId: req.user.sub, role: req.user.role }, clampLimit(limit, 20), clampOffset(offset))
   })
 }

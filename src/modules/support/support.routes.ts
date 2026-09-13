@@ -11,6 +11,7 @@ import {
   type AssignCaseBody,
 } from './support.schema.js'
 import { supportService } from './support.service.js'
+import { clampLimit, clampOffset } from '../../lib/pagination.js'
 
 export async function supportRoutes(app: FastifyInstance) {
   // User: create support case
@@ -38,8 +39,8 @@ export async function supportRoutes(app: FastifyInstance) {
       status,
       category,
       priority,
-      limit: limit ? parseInt(limit) : 20,
-      offset: offset ? parseInt(offset) : 0,
+      limit: clampLimit(limit, 20),
+      offset: clampOffset(offset),
     })
   })
 
@@ -82,8 +83,8 @@ export async function supportRoutes(app: FastifyInstance) {
       category,
       priority,
       assignedTo,
-      limit: limit ? parseInt(limit) : 50,
-      offset: offset ? parseInt(offset) : 0,
+      limit: clampLimit(limit, 50),
+      offset: clampOffset(offset),
     })
   })
 
@@ -134,6 +135,6 @@ export async function supportRoutes(app: FastifyInstance) {
   // Get case events/history
   app.get('/:caseId/events', { preHandler: [authenticate] }, async (req) => {
     const { caseId } = req.params as { caseId: string }
-    return supportService.getCaseEvents(caseId)
+    return supportService.getCaseEvents(caseId, req.user.sub, req.user.role)
   })
 }

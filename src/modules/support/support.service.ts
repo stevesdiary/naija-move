@@ -64,6 +64,12 @@ export const supportService = {
     const case_ = await supportRepository.findCaseById(caseId)
     if (!case_) throw errors.notFound('Case not found')
 
+    // End users may only write to their own case, and never author internal notes.
+    if (params.authorType === 'user') {
+      if (case_.userId !== params.authorId) throw errors.forbidden('Not your case')
+      params.isInternal = false
+    }
+
     // Update status if user replies to pending_agent
     if (params.authorType === 'user' && case_.status === 'pending_agent') {
       await supportRepository.updateCaseStatus(caseId, 'pending_user', params.authorId, 'user')
@@ -100,7 +106,8 @@ export const supportService = {
     return supportRepository.listCases(filters)
   },
 
-  async getCaseEvents(caseId: string) {
+  async getCaseEvents(caseId: string, userId?: string, userType?: string) {
+    await this.getCase(caseId, userId, userType) // enforces ownership
     return supportRepository.getEvents(caseId)
   },
 }

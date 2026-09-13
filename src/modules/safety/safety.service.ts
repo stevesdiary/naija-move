@@ -52,9 +52,11 @@ export const safetyService = {
     })
   },
 
-  async getIncident(incidentId: string) {
+  /** Incidents carry SOS coordinates — only the reporter or an admin may read them. */
+  async getIncident(incidentId: string, actor: { userId: string; role: string }) {
     const incident = await safetyRepository.findIncidentById(incidentId)
     if (!incident) throw errors.notFound('Incident not found')
+    if (actor.role !== 'admin' && incident.reportedBy !== actor.userId) throw errors.forbidden('Not your incident')
     return incident
   },
 
@@ -105,7 +107,8 @@ export const safetyService = {
     })
   },
 
-  async getIncidentEvents(incidentId: string) {
+  async getIncidentEvents(incidentId: string, actor: { userId: string; role: string }) {
+    await this.getIncident(incidentId, actor) // enforces ownership
     return safetyRepository.getEvents(incidentId)
   },
 }

@@ -30,9 +30,15 @@ export const fleetService = {
   async addVehicle(fleetOwnerId: string, vehicleId: string) {
     const owner = await fleetRepository.findOwnerById(fleetOwnerId)
     if (!owner) throw errors.notFound('Fleet owner not found')
-    // Verify vehicle exists
     const vehicle = await vehiclesRepository.findById(vehicleId)
     if (!vehicle) throw errors.notFound('Vehicle not found')
+    // The only ownership link in the schema is vehicles.driver_id → drivers.user_id.
+    // A fleet owner may only enrol vehicles registered under their own account;
+    // anything else would let them claim an arbitrary driver's car.
+    const registeredBy = await driversRepository.findById(vehicle.driverId)
+    if (!registeredBy || registeredBy.userId !== owner.userId) {
+      throw errors.forbidden('Vehicle is not registered to your account')
+    }
     return fleetRepository.addVehicle({ fleetOwnerId, vehicleId })
   },
 
