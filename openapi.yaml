@@ -1835,16 +1835,25 @@ paths:
                 offers:
                   - id: "off_01HZ9K2M3N4P5Q6R7S8T9U0V"
                     tripId: "trp_01HZ9K2M3N4P5Q6R7S8T9U0V"
-                    pickup:
-                      address: "24 Adetokunbo Ademola St, Victoria Island"
-                      area: "Victoria Island"
-                      lat: 6.4281
-                      lng: 3.4219
-                    distanceToPickupKm: 1.2
-                    distanceKm: 8.4
-                    fareKobo: 185000
-                    surgeMultiplier: 1.4
+                    status: "pending"
+                    estimatedPickupSeconds: 240
                     expiresAt: "2026-09-11T16:01:00Z"
+                    trip:
+                      id: "trp_01HZ9K2M3N4P5Q6R7S8T9U0V"
+                      status: "requested"
+                      pickupAddress: "24 Adetokunbo Ademola St, Victoria Island"
+                      pickupLat: 6.4281
+                      pickupLng: 3.4219
+                      destinationAddress: "Ikeja City Mall"
+                      destinationLat: 6.6018
+                      destinationLng: 3.3515
+                      distanceMeters: 8400
+                      durationSeconds: 1560
+                      estimatedFareKobo: 185000
+                      driverAmountKobo: 170200
+                      surgeMultiplier: 1.4
+                      paymentMethod: "card"
+                      mode: "immediate"
 
   /dispatch/nearby-drivers:
     get:

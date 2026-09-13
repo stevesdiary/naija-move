@@ -288,9 +288,14 @@ export const ridesRepository = {
     })
   },
 
+  /**
+   * Pending offers with the trip summary a driver needs to accept or decline.
+   * Deliberately excludes the pickup PIN and rider identity — those are only
+   * revealed once the offer is accepted.
+   */
   async getOffersForDriver(driverId: string) {
     const now = new Date()
-    return db.query.driverOffers.findMany({
+    const offers = await db.query.driverOffers.findMany({
       where: and(
         eq(driverOffers.driverId, driverId),
         eq(driverOffers.status, 'pending'),
@@ -298,6 +303,18 @@ export const ridesRepository = {
       ),
       orderBy: [desc(driverOffers.createdAt)],
     })
+    if (offers.length === 0) return []
+    const tripRows = await db.query.trips.findMany({
+      columns: {
+        id: true, status: true, pickupAddress: true, pickupLat: true, pickupLng: true,
+        destinationAddress: true, destinationLat: true, destinationLng: true,
+        distanceMeters: true, durationSeconds: true, estimatedFareKobo: true,
+        driverAmountKobo: true, surgeMultiplier: true, paymentMethod: true, mode: true, scheduledFor: true,
+      },
+      where: inArray(trips.id, offers.map((o) => o.tripId)),
+    })
+    const byId = new Map(tripRows.map((t) => [t.id, t]))
+    return offers.map((o) => ({ ...o, trip: byId.get(o.tripId) ?? null }))
   },
 
   async respondToOffer(offerId: string, driverId: string, accepted: boolean, declineReason?: string) {
