@@ -77,13 +77,17 @@ export const logisticsRepository = {
     return db.query.deliveryProofs.findFirst({ where: eq(deliveryProofs.id, id) })
   },
 
-  async verifyOtp(deliveryJobId: string, otp: string) {
-    const proof = await db.query.deliveryProofs.findFirst({
-      where: and(eq(deliveryProofs.deliveryJobId, deliveryJobId), eq(deliveryProofs.otp, otp)),
-    })
-    if (!proof) return false
+  async findProofByJobId(deliveryJobId: string) {
+    return db.query.deliveryProofs.findFirst({ where: eq(deliveryProofs.deliveryJobId, deliveryJobId) })
+  },
 
-    await db.update(deliveryProofs).set({ otpVerifiedAt: new Date() }).where(eq(deliveryProofs.id, proof.id))
-    return true
+  /** Driver-supplied evidence only — the OTP is set once at job creation and never updated here. */
+  async updateProof(deliveryJobId: string, data: { photoUrl?: string; recipientConfirmed?: string }) {
+    await db.update(deliveryProofs).set(data).where(eq(deliveryProofs.deliveryJobId, deliveryJobId))
+    return this.findProofByJobId(deliveryJobId)
+  },
+
+  async markOtpVerified(proofId: string) {
+    await db.update(deliveryProofs).set({ otpVerifiedAt: new Date() }).where(eq(deliveryProofs.id, proofId))
   },
 }

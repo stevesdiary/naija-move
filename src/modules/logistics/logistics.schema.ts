@@ -16,11 +16,16 @@ export const createDeliveryJobSchema = z.object({
   scheduledFor: z.string().datetime().optional(),
 })
 
+// OTP is deliberately absent — it is generated server-side and only checked via /verify-otp.
 export const submitProofSchema = z.object({
-  otp: z.string().length(4).optional(),
   photoUrl: z.string().url().optional(),
   recipientConfirmed: z.string().max(200).optional(),
 })
 
+export const verifyDeliveryOtpSchema = z.object({
+  otp: z.string().regex(/^[0-9]{4}$/),
+})
+
 export type CreateDeliveryJobBody = z.infer<typeof createDeliveryJobSchema>
 export type SubmitProofBody = z.infer<typeof submitProofSchema>
+export type VerifyDeliveryOtpBody = z.infer<typeof verifyDeliveryOtpSchema>
