@@ -15,6 +15,8 @@ export const users = pgTable('users', {
   name: text('name'),
   avatarUrl: text('avatar_url'),
   role: userRoleEnum('role').notNull().default('rider'),
+  /** scrypt hash — only set for admin accounts, which authenticate with email + password. */
+  passwordHash: text('password_hash'),
   isActive: boolean('is_active').notNull().default(true),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),

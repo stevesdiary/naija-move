@@ -49,7 +49,10 @@ vi.mock('../../src/config/env.js', () => ({
 vi.mock('../../src/modules/identity/identity.repository.js', () => ({
   identityRepository: {
     findUserByPhone: vi.fn(async () => null),
-    upsertRiderByPhone: vi.fn(async () => ({ id: '11111111-1111-4111-8111-111111111111', name: null, isNew: true })),
+    findUserById: vi.fn(async () => ({ id: '11111111-1111-4111-8111-111111111111', role: 'rider', isActive: true })),
+    findUserByEmail: vi.fn(async () => null),
+    setRole: vi.fn(async () => undefined),
+    upsertRiderByPhone: vi.fn(async () => ({ id: '11111111-1111-4111-8111-111111111111', name: null, role: 'rider', isNew: true, isActive: true })),
   },
 }))
 
@@ -107,5 +110,86 @@ describe('identity service', () => {
     await requestOtp('+2348012345678')
     await requestOtp('+2348012345678')
     await expect(requestOtp('+2348012345678')).rejects.toThrow('Too many OTP requests')
+  })
+})
+
+describe('identity service — OTP hardening', () => {
+  it('burns the code after too many wrong guesses', async () => {
+    await requestOtp('+2348012345678')
+    for (let i = 0; i < 5; i++) {
+      await expect(verifyOtp('+2348012345678', '000000')).rejects.toMatchObject({ statusCode: 401 })
+    }
+    // 6th attempt: locked out, and the stored code is gone so even the right code fails
+    await expect(verifyOtp('+2348012345678', '000000')).rejects.toMatchObject({ statusCode: 401 })
+    expect(await redis.get('otp:+2348012345678')).toBeNull()
+  })
+
+  it('refuses login for a disabled account', async () => {
+    const { identityRepository } = await import('../../src/modules/identity/identity.repository.js')
+    vi.mocked(identityRepository.upsertRiderByPhone).mockResolvedValueOnce({
+      id: '22222222-2222-4222-8222-222222222222', name: null, role: 'rider', isNew: false, isActive: false,
+    })
+    await requestOtp('+2348099999999')
+    const code = (await redis.get<string>('otp:+2348099999999'))!
+    await expect(verifyOtp('+2348099999999', String(code))).rejects.toMatchObject({ statusCode: 403 })
+  })
+})
+
+describe('identity service — roles and admin login', () => {
+  it('issues the role stored on the account, not a hardcoded one', async () => {
+    const { identityRepository } = await import('../../src/modules/identity/identity.repository.js')
+    const { verifyAccessToken } = await import('../../src/lib/jwt.js')
+    vi.mocked(identityRepository.upsertRiderByPhone).mockResolvedValueOnce({
+      id: '33333333-3333-4333-8333-333333333333', name: 'D', role: 'driver', isNew: false, isActive: true,
+    })
+    await requestOtp('+2348011111111')
+    const code = (await redis.get<string>('otp:+2348011111111'))!
+    const { accessToken } = await verifyOtp('+2348011111111', String(code))
+    expect(verifyAccessToken(accessToken).role).toBe('driver')
+  })
+
+  it('refuses SMS-OTP login for admin accounts', async () => {
+    const { identityRepository } = await import('../../src/modules/identity/identity.repository.js')
+    vi.mocked(identityRepository.upsertRiderByPhone).mockResolvedValueOnce({
+      id: '44444444-4444-4444-8444-444444444444', name: 'A', role: 'admin', isNew: false, isActive: true,
+    })
+    await requestOtp('+2348022222222')
+    const code = (await redis.get<string>('otp:+2348022222222'))!
+    await expect(verifyOtp('+2348022222222', String(code))).rejects.toMatchObject({ statusCode: 403 })
+  })
+
+  it('admin login: unknown email and wrong password both yield the same 401', async () => {
+    const { identityRepository } = await import('../../src/modules/identity/identity.repository.js')
+    const { hashPassword } = await import('../../src/lib/password.js')
+    const { adminLogin } = await import('../../src/modules/identity/identity.service.js')
+
+    await expect(adminLogin('nobody@example.com', 'whatever123')).rejects.toMatchObject({ statusCode: 401, message: 'Invalid email or password' })
+
+    const passwordHash = await hashPassword('hunter2hunter2')
+    vi.mocked(identityRepository.findUserByEmail).mockResolvedValue({
+      id: '55555555-5555-4555-8555-555555555555', name: 'Ops', role: 'admin', isActive: true, passwordHash,
+    } as any)
+    await expect(adminLogin('ops@example.com', 'wrongwrong')).rejects.toMatchObject({ statusCode: 401, message: 'Invalid email or password' })
+    const ok = await adminLogin('ops@example.com', 'hunter2hunter2')
+    expect(ok.userId).toBe('55555555-5555-4555-8555-555555555555')
+  })
+
+  it('admin login: a non-admin account with a password is refused', async () => {
+    const { identityRepository } = await import('../../src/modules/identity/identity.repository.js')
+    const { hashPassword } = await import('../../src/lib/password.js')
+    const { adminLogin } = await import('../../src/modules/identity/identity.service.js')
+    vi.mocked(identityRepository.findUserByEmail).mockResolvedValueOnce({
+      id: '66666666-6666-4666-8666-666666666666', role: 'rider', isActive: true, passwordHash: await hashPassword('hunter2hunter2'),
+    } as any)
+    await expect(adminLogin('r@example.com', 'hunter2hunter2')).rejects.toMatchObject({ statusCode: 403 })
+  })
+
+  it('refresh re-reads the account and refuses a deactivated user', async () => {
+    const { identityRepository } = await import('../../src/modules/identity/identity.repository.js')
+    await requestOtp('+2348033333333')
+    const code = (await redis.get<string>('otp:+2348033333333'))!
+    const { refreshToken } = await verifyOtp('+2348033333333', String(code))
+    vi.mocked(identityRepository.findUserById).mockResolvedValueOnce({ id: 'x', role: 'rider', isActive: false } as any)
+    await expect(refreshTokens(refreshToken)).rejects.toMatchObject({ statusCode: 401 })
   })
 })

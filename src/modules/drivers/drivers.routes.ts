@@ -11,9 +11,11 @@ import {
   type AdminActionBody,
 } from './drivers.schema.js'
 import { driversService } from './drivers.service.js'
+import { clampLimit, clampOffset } from '../../lib/pagination.js'
 
 export async function driverRoutes(app: FastifyInstance) {
-  app.post('/register', { preHandler: [authenticate, authorize('driver')] }, async (req) => {
+  // Any rider can apply to drive; the profile stays `pending` until an admin approves it.
+  app.post('/register', { preHandler: [authenticate, authorize('rider')] }, async (req) => {
     return driversService.register(req.user.sub)
   })
 
@@ -91,8 +93,8 @@ export async function driverRoutes(app: FastifyInstance) {
     const { status, limit, offset } = req.query as { status?: string; limit?: string; offset?: string }
     return driversService.adminList({
       status,
-      limit: limit ? parseInt(limit) : 50,
-      offset: offset ? parseInt(offset) : 0,
+      limit: clampLimit(limit, 50),
+      offset: clampOffset(offset),
     })
   })
 

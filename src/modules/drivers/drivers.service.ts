@@ -1,11 +1,17 @@
 import { driversRepository } from './drivers.repository.js'
 import { errors } from '../../lib/errors.js'
+import { identityRepository } from '../identity/identity.repository.js'
+import { issueSession } from '../identity/identity.service.js'
 
 export const driversService = {
+  /** A rider opts in to driving: create the profile, switch the account role, and re-issue tokens. */
   async register(userId: string) {
     const existing = await driversRepository.findByUserId(userId)
     if (existing) throw errors.conflict('Driver profile already exists')
-    return driversRepository.create(userId)
+    const driver = await driversRepository.create(userId)
+    await identityRepository.setRole(userId, 'driver')
+    const { accessToken, refreshToken } = await issueSession(userId, 'driver')
+    return { driver, accessToken, refreshToken }
   },
 
   async getProfile(userId: string) {
