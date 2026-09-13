@@ -14,10 +14,15 @@ export const updateVehicleSchema = vehicleRegisterSchema.partial().extend({
   isActive: z.boolean().optional(),
 })
 
+// Driver submission: a request for inspection. The outcome is recorded by an admin.
 export const inspectionSchema = z.object({
-  status: z.enum(['passed', 'failed', 'pending']),
-  result: z.string().optional(),
+  result: z.string().max(500).optional(),
   inspectedAt: z.string().datetime().optional(),
+})
+
+export const inspectionReviewSchema = z.object({
+  status: z.enum(['passed', 'failed']),
+  result: z.string().max(500).optional(),
   expiresAt: z.string().datetime().optional(),
 })
 
@@ -31,4 +36,5 @@ export const insuranceSchema = z.object({
 export type VehicleRegisterBody = z.infer<typeof vehicleRegisterSchema>
 export type UpdateVehicleBody = z.infer<typeof updateVehicleSchema>
 export type InspectionBody = z.infer<typeof inspectionSchema>
+export type InspectionReviewBody = z.infer<typeof inspectionReviewSchema>
 export type InsuranceBody = z.infer<typeof insuranceSchema>

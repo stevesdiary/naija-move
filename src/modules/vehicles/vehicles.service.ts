@@ -58,14 +58,16 @@ export const vehiclesService = {
     return vehiclesRepository.listInspections(vehicleId)
   },
 
-  async addInspection(userId: string, vehicleId: string, data: {
-    status: string
-    result?: string
-    inspectedAt?: Date
-    expiresAt?: Date
-  }) {
+  /** Drivers can only *request* an inspection; the pass/fail outcome is set via reviewInspection. */
+  async addInspection(userId: string, vehicleId: string, data: { result?: string; inspectedAt?: Date }) {
     await this.getVehicle(userId, vehicleId) // validates ownership
-    return vehiclesRepository.createInspection(vehicleId, data)
+    return vehiclesRepository.createInspection(vehicleId, { ...data, status: 'pending' })
+  },
+
+  async reviewInspection(vehicleId: string, inspectionId: string, data: { status: 'passed' | 'failed'; result?: string; expiresAt?: Date }) {
+    const updated = await vehiclesRepository.reviewInspection(vehicleId, inspectionId, data)
+    if (!updated) throw errors.notFound('Inspection not found')
+    return updated
   },
 
   // Insurance

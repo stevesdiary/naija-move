@@ -85,6 +85,16 @@ export const vehiclesRepository = {
     return db.query.vehicleInspections.findFirst({ where: eq(vehicleInspections.id, id) })
   },
 
+  async reviewInspection(vehicleId: string, inspectionId: string, data: { status: 'passed' | 'failed'; result?: string; expiresAt?: Date }) {
+    await db
+      .update(vehicleInspections)
+      .set({ status: data.status, result: data.result, expiresAt: data.expiresAt })
+      .where(and(eq(vehicleInspections.id, inspectionId), eq(vehicleInspections.vehicleId, vehicleId)))
+    return db.query.vehicleInspections.findFirst({
+      where: and(eq(vehicleInspections.id, inspectionId), eq(vehicleInspections.vehicleId, vehicleId)),
+    })
+  },
+
   // Insurance — no deletedAt on this table
   async listInsurance(vehicleId: string) {
     return db.query.vehicleInsurance.findMany({

@@ -4,10 +4,12 @@ import {
   vehicleRegisterSchema,
   updateVehicleSchema,
   inspectionSchema,
+  inspectionReviewSchema,
   insuranceSchema,
   type VehicleRegisterBody,
   type UpdateVehicleBody,
   type InspectionBody,
+  type InspectionReviewBody,
   type InsuranceBody,
 } from './vehicles.schema.js'
 import { vehiclesService } from './vehicles.service.js'
@@ -56,9 +58,22 @@ export async function vehicleRoutes(app: FastifyInstance) {
       const { vehicleId } = req.params
       const body = inspectionSchema.parse(req.body)
       return vehiclesService.addInspection(req.user.sub, vehicleId, {
-        status: body.status,
         result: body.result,
         inspectedAt: body.inspectedAt ? new Date(body.inspectedAt) : undefined,
+      })
+    },
+  )
+
+  // Admin: record the outcome of an inspection
+  app.put<{ Body: InspectionReviewBody; Params: { vehicleId: string; inspectionId: string } }>(
+    '/:vehicleId/inspections/:inspectionId',
+    { preHandler: [authenticate, authorize('admin')] },
+    async (req) => {
+      const { vehicleId, inspectionId } = req.params
+      const body = inspectionReviewSchema.parse(req.body)
+      return vehiclesService.reviewInspection(vehicleId, inspectionId, {
+        status: body.status,
+        result: body.result,
         expiresAt: body.expiresAt ? new Date(body.expiresAt) : undefined,
       })
     },
