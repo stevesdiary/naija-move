@@ -47,6 +47,23 @@ npm run db:migrate    # apply migrations to DATABASE_URL
 npm run db:studio     # open Drizzle Studio
 ```
 
+Migrations are versioned in `drizzle/migrations/` (the baseline is `0000_*`).
+`db:migrate` runs `scripts/migrate.ts`, which uses the app's own pool so the
+`DATABASE_CERT`-pinned TLS config applies. `npm run db:tables` lists what's in
+the target database.
+
+The DB driver is `drizzle-orm/node-postgres` (`pg`) with TLS verified against `DATABASE_CERT`; the previous Neon client could not reach a non-Neon Postgres. 
+the ledger, wallet and promotion paths rely on transactions and `SELECT … FOR UPDATE`.
+
+### Create the first admin
+
+```bash
+ADMIN_PASSWORD='…' npx tsx scripts/create-admin.ts --email ops@naijamove.com --phone +2348000000000 --name "Ops Lead"
+```
+
+Re-running with an existing email rotates the password. Never pass the password
+as a flag — it's read from `ADMIN_PASSWORD` or prompted.
+
 ### Run
 
 ```bash
@@ -75,15 +92,18 @@ All variables are required unless a default is listed. The server exits on boot 
 |---|---|
 | `NODE_ENV` | `development` \| `test` \| `production` (default `development`) |
 | `PORT` | default `3000` |
-| `DATABASE_URL` | Neon Postgres connection string |
-| `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET` | min 32 chars each |
+| `DATABASE_URL` | Postgres connection string (`sslmode=require`) |
+| `DATABASE_CERT` | Optional PEM CA for the DB host (Aiven "Project CA"); enables strict TLS verification |
+| `JWT_ACCESS_SECRET` / `JWT_REFRESH_SECRET` | `openssl rand -hex 32` each; must differ. Boot is refused on `change-me*` placeholders |
 | `REDIS_URL` | IORedis-compatible `rediss://` URL (BullMQ) |
 | `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN` | Upstash REST client (cache, rate limit, idempotency) |
 | `QSTASH_TOKEN` / `QSTASH_CURRENT_SIGNING_KEY` / `QSTASH_NEXT_SIGNING_KEY` | QStash publish + signature verification |
 | `MAPBOX_ACCESS_TOKEN` | Routing, ETA, geocoding |
 | `PAYSTACK_SECRET_KEY` / `PAYSTACK_WEBHOOK_SECRET` | Payments + webhook verification |
-| `INTERNAL_JOB_SECRET` | min 32 chars; guards `/internal` routes |
+| `INTERNAL_JOB_SECRET` | `openssl rand -hex 32`; guards `/internal` routes and `x-internal-secret` callers |
 | `APP_URL` | Public URL QStash calls back to |
+| `TRUST_PROXY` | Proxy hops to trust for `X-Forwarded-For` (default `0`). Set to `1` behind a load balancer, or rate limiting keys on the LB's IP |
+| `CORS_ORIGINS` | Comma-separated browser origins (default `http://localhost:5173`, the dashboard dev server) |
 
 ## Project structure
 
@@ -152,10 +172,31 @@ Send `Authorization: Bearer <accessToken>` on protected routes. Roles are enforc
 
 ```
 POST /auth/otp/request    { phone }
-POST /auth/otp/verify     { phone, code }   → { accessToken, refreshToken }
+POST /auth/otp/verify     { phone, code }        → { accessToken, refreshToken }   riders & drivers
+POST /auth/admin/login    { email, password }    → { accessToken, refreshToken }   admins only
 POST /auth/token/refresh  { refreshToken }
 POST /auth/logout         (authenticated)
+POST /drivers/register    (rider)                → { driver, accessToken, refreshToken }
 ```
+
+**Role model.** The token role is read from `users.role` at login and again on
+every refresh, so deactivating an account or changing its role takes effect
+within one access-token lifetime (15 min). New phone sign-ups are `rider`;
+`POST /drivers/register` promotes a rider to `driver` (profile stays `pending`
+until an admin approves it) and returns a fresh token pair. `admin` accounts
+authenticate only with email + password (scrypt) — SMS OTP is refused for them.
+
+**Ownership.** Authorization is enforced in the service layer, not just the
+route: trips, delivery jobs, incidents, support cases, corporate accounts and
+fleet vehicles all check the caller is the owner (or an admin) before reading or
+mutating. JWT `sub` is the *user* id; trips/offers/jobs reference the rider or
+driver *profile* id — resolve with `riderIdFor` / `driverIdFor` from
+`src/lib/actors.ts` rather than comparing `req.user.sub` directly.
+
+**Secrets & brute force.** OTPs, pickup PINs and delivery OTPs come from
+`crypto.randomInt`, are compared in constant time, and lock after 5 wrong
+guesses. Delivery OTPs are sent to the recipient at job creation and are never
+accepted from the driver.
 
 ### WebSockets
 
@@ -164,11 +205,18 @@ GET /ws/trip/:tripId/driver   # driver streams GPS every ~3s
 GET /ws/trip/:tripId/rider    # rider receives location + trip state events
 ```
 
+Both channels require the access token — `Authorization: Bearer <token>` or, for
+clients that can't set upgrade headers, `?token=<token>` — and the caller must be
+that trip's rider or driver. The upgrade is refused with 401/403 otherwise, and
+with 422 once the trip is completed or cancelled.
+
 Driver location is cached in Redis (`loc:{tripId}`, short TTL) and fanned out to the rider channel on each update. Trip state events (`arrived`, `started`, `completed`, `cancelled`) are emitted on the same channels.
 
 ### Rate limiting
 
-Global: 100 requests / minute per client, backed by Redis.
+Global: 100 requests / minute per client IP, backed by Redis. `POST /auth/admin/login`
+is additionally capped at 5 / minute. Request bodies are limited to 256 KiB and
+list endpoints clamp `limit` to 100.
 
 ## Background jobs
 

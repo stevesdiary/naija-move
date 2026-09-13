@@ -203,6 +203,38 @@ paths:
         "401":
           description: Invalid or expired OTP
 
+  /auth/admin/login:
+    post:
+      tags: [Auth]
+      summary: Admin sign-in (email + password)
+      description: |
+        Dashboard login for `admin` accounts. Admins cannot sign in via SMS OTP.
+        Rate limited to 5 attempts/minute per IP. Unknown email and wrong password
+        return the same 401. Accounts are created with `scripts/create-admin.ts`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, minLength: 8 }
+      responses:
+        "200":
+          description: Token pair issued
+          content:
+            application/json:
+              example:
+                accessToken: "eyJhbGciOiJIUzI1NiIs..."
+                refreshToken: "eyJhbGciOiJIUzI1NiIs..."
+                userId: "usr_01HZ9K2M3N4P5Q6R7S8T9U0V"
+                name: "Ops Lead"
+        "401": { description: Invalid email or password }
+        "403": { description: Not an admin account, or account disabled }
+        "429": { description: Too many attempts }
+
   /auth/token/refresh:
     post:
       tags: [Auth]
@@ -444,18 +476,28 @@ paths:
     post:
       tags: [Drivers]
       summary: Register as a driver
+      description: |
+        Called by a signed-in **rider**. Creates a `pending` driver profile, switches the
+        account role to `driver`, and returns a fresh token pair carrying that role —
+        replace the stored tokens with these. Admin approval is still required before
+        the driver can go online.
       security:
         - bearerAuth: []
       responses:
         "200":
-          description: Driver profile created
+          description: Driver profile created and role upgraded
           content:
             application/json:
               example:
-                id: "drv_01HZ9K2M3N4P5Q6R7S8T9U0V"
-                userId: "usr_01HZ9K2M3N4P5Q6R7S8T9U0V"
-                status: "pending_review"
-                createdAt: "2024-01-15T10:30:00Z"
+                driver:
+                  id: "drv_01HZ9K2M3N4P5Q6R7S8T9U0V"
+                  userId: "usr_01HZ9K2M3N4P5Q6R7S8T9U0V"
+                  status: "pending"
+                  createdAt: "2024-01-15T10:30:00Z"
+                accessToken: "eyJhbGciOiJIUzI1NiIs..."
+                refreshToken: "eyJhbGciOiJIUzI1NiIs..."
+        "403": { description: Caller is not a rider }
+        "409": { description: Driver profile already exists }
 
   /drivers/me:
     get:
@@ -817,7 +859,10 @@ paths:
                     expiresAt: "2027-01-10T09:00:00Z"
     post:
       tags: [Vehicles]
-      summary: Add inspection record
+      summary: Request an inspection (driver)
+      description: |
+        Creates an inspection record in `pending` state. Drivers cannot set the
+        outcome — an admin records pass/fail via `PUT /vehicles/{vehicleId}/inspections/{inspectionId}`.
       security:
         - bearerAuth: []
       parameters:
@@ -827,17 +872,53 @@ paths:
           schema:
             type: string
       requestBody:
-        required: true
+        required: false
         content:
           application/json:
             example:
+              result: "Booked at Ikeja centre"
+              inspectedAt: "2026-01-10T09:00:00Z"
+      responses:
+        "200":
+          description: Inspection request recorded (status `pending`)
+
+  /vehicles/{vehicleId}/inspections/{inspectionId}:
+    put:
+      tags: [Vehicles]
+      summary: Record inspection outcome (admin)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: vehicleId
+          in: path
+          required: true
+          schema: { type: string }
+        - name: inspectionId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [passed, failed] }
+                result: { type: string, maxLength: 500 }
+                expiresAt: { type: string, format: date-time }
+            example:
               status: "passed"
               result: "All systems nominal"
-              inspectedAt: "2026-01-10T09:00:00Z"
               expiresAt: "2027-01-10T09:00:00Z"
       responses:
         "200":
-          description: Inspection added
+          description: Inspection updated
+        "403":
+          description: Admin only
+        "404":
+          description: Inspection not found for this vehicle
 
   /vehicles/{vehicleId}/insurance:
     get:
@@ -886,9 +967,10 @@ paths:
       tags: [Pricing]
       summary: Get a fare quote
       description: |
-        Returns a fare quote for a given route. Call `/maps/route` first to get
-        `distanceMeters` and `durationSeconds`. The returned `quoteId` must be
-        passed when creating a trip.
+        Returns a fare quote for a given route. Distance and duration are
+        computed server-side from the coordinates (client-supplied values are
+        ignored). The returned `quoteId` must be passed when creating a trip,
+        and the trip's pickup/destination must match the quoted ones.
       security:
         - bearerAuth: []
         - {}
@@ -898,7 +980,7 @@ paths:
           application/json:
             schema:
               type: object
-              required: [city, category, pickupLat, pickupLng, destinationLat, destinationLng, distanceMeters, durationSeconds]
+              required: [city, category, pickupLat, pickupLng, destinationLat, destinationLng]
               properties:
                 city:
                   type: string
@@ -918,12 +1000,6 @@ paths:
                 destinationLng:
                   type: number
                   example: 3.3515
-                distanceMeters:
-                  type: integer
-                  example: 8400
-                durationSeconds:
-                  type: integer
-                  example: 1560
             example:
               city: "Lagos"
               category: "economy"
@@ -931,8 +1007,6 @@ paths:
               pickupLng: 3.4219
               destinationLat: 6.6018
               destinationLng: 3.3515
-              distanceMeters: 8400
-              durationSeconds: 1560
       responses:
         "200":
           description: Fare quote
