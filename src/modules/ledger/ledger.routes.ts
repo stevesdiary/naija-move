@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { authenticate, authorize } from '../../lib/rbac.js'
 import { ledgerService } from './ledger.service.js'
 import { errors } from '../../lib/errors.js'
+import { clampLimit, clampOffset } from '../../lib/pagination.js'
 
 const VALID_ACCOUNTS = [
   'rider_wallet',
@@ -49,8 +50,8 @@ export async function ledgerRoutes(app: FastifyInstance) {
       }
 
       const entries = await ledgerService.getRecentEntries(
-        limit ? parseInt(limit) : 50,
-        offset ? parseInt(offset) : 0,
+        clampLimit(limit, 50),
+        clampOffset(offset),
         account,
         from ? new Date(from) : undefined,
         to ? new Date(to) : undefined,

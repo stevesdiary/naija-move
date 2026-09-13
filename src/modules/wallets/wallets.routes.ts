@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify'
 import { authenticate, authorize } from '../../lib/rbac.js'
 import { walletService } from '../payments/wallet.service.js'
 import { z } from 'zod'
+import { clampLimit, clampOffset } from '../../lib/pagination.js'
 
 const withdrawSchema = z.object({
   amountKobo: z.number().int().positive(),
@@ -24,8 +25,8 @@ export async function walletRoutes(app: FastifyInstance) {
     return walletService.getWalletTransactions(
       req.user.sub,
       ownerType,
-      limit ? parseInt(limit) : 50,
-      offset ? parseInt(offset) : 0,
+      clampLimit(limit, 50),
+      clampOffset(offset),
     )
   })
 

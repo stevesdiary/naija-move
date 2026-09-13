@@ -5,7 +5,7 @@ export const redis = new Redis(env.REDIS_URL, {
   maxRetriesPerRequest: 3,
   retryStrategy: (times) => Math.min(times * 50, 2000),
   lazyConnect: true,
-  tls: env.REDIS_URL.startsWith('redis://') ? {} : undefined,
+  tls: env.REDIS_URL.startsWith('rediss://') ? {} : undefined,
 })
 
 redis.on('error', (err) => {

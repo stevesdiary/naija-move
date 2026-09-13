@@ -4,6 +4,7 @@ import rateLimit from '@fastify/rate-limit'
 import websocket from '@fastify/websocket'
 import swagger from '@fastify/swagger'
 import swaggerUi from '@fastify/swagger-ui'
+import helmet from '@fastify/helmet'
 import { readFileSync } from 'fs'
 import { resolve, dirname } from 'path'
 import { fileURLToPath } from 'url'
@@ -48,8 +49,21 @@ export async function buildApp() {
         env.NODE_ENV === 'development'
           ? { target: 'pino-pretty', options: { colorize: true } }
           : undefined,
+      redact: ['req.headers.authorization', 'req.headers["x-internal-secret"]'],
+      serializers: {
+        // WebSocket clients pass the access token as ?token= — keep it out of the logs.
+        req: (req) => ({
+          method: req.method,
+          url: req.url.replace(/([?&]token=)[^&]*/gi, '$1[redacted]'),
+          hostname: req.hostname,
+          remoteAddress: req.ip,
+        }),
+      },
     },
     genReqId: () => crypto.randomUUID(),
+    bodyLimit: 256 * 1024, // 256 KiB — largest legitimate payload is a bulk notification
+    // 0 = trust nothing (direct). Behind a proxy, X-Forwarded-For is only honoured for this many hops.
+    trustProxy: env.TRUST_PROXY > 0 ? (_addr: string, hop: number) => hop < env.TRUST_PROXY : false,
   })
 
   // Swagger — load the static spec file
@@ -65,8 +79,10 @@ export async function buildApp() {
   })
 
   // Plugins
+  // Swagger UI ships its own CSP (staticCSP above); helmet's would block it, so CSP stays off for this JSON API.
+  await app.register(helmet, { contentSecurityPolicy: false })
   await app.register(cors, {
-    origin: ['http://localhost:3004', 'http://127.0.0.1:3004'],
+    origin: env.CORS_ORIGINS.split(',').map((o) => o.trim()).filter(Boolean),
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   })
   await app.register(rateLimit, {

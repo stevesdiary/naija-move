@@ -8,6 +8,7 @@ import { trips, riders, drivers, users } from '../../db/schema/index.js'
 import { eq, desc, and, isNull, count, sql } from 'drizzle-orm'
 import { z } from 'zod'
 import { errors } from '../../lib/errors.js'
+import { clampLimit, clampOffset } from '../../lib/pagination.js'
 
 const pricingConfigSchema = z.object({
   city: z.string().min(1),
@@ -51,8 +52,8 @@ export async function adminRoutes(app: FastifyInstance) {
     const rows = await db.query.trips.findMany({
       where: and(...conditions),
       orderBy: [desc(trips.createdAt)],
-      limit: limit ? parseInt(limit) : 50,
-      offset: offset ? parseInt(offset) : 0,
+      limit: clampLimit(limit, 50),
+      offset: clampOffset(offset),
     })
 
     return { trips: rows }
@@ -86,8 +87,8 @@ export async function adminRoutes(app: FastifyInstance) {
     }
     return driversService.adminList({
       status,
-      limit: limit ? parseInt(limit) : 50,
-      offset: offset ? parseInt(offset) : 0,
+      limit: clampLimit(limit, 50),
+      offset: clampOffset(offset),
     })
   })
 

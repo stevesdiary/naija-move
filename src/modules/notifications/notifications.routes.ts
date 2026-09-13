@@ -9,6 +9,7 @@ import {
   type CreateTemplateBody,
 } from './notifications.schema.js'
 import { notificationsService } from './notifications.service.js'
+import { clampLimit, clampOffset } from '../../lib/pagination.js'
 
 export async function notificationRoutes(app: FastifyInstance) {
   // Send single notification (admin)
@@ -48,6 +49,6 @@ export async function notificationRoutes(app: FastifyInstance) {
   // Get user's notification history
   app.get('/my', { preHandler: [authenticate] }, async (req) => {
     const { limit, offset } = req.query as { limit?: string; offset?: string }
-    return notificationsService.getUserNotifications(req.user.sub, limit ? parseInt(limit) : 50, offset ? parseInt(offset) : 0)
+    return notificationsService.getUserNotifications(req.user.sub, clampLimit(limit, 50), clampOffset(offset))
   })
 }

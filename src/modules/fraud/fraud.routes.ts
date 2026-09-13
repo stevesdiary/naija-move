@@ -9,6 +9,7 @@ import {
   type UpdateReviewBody,
 } from './fraud.schema.js'
 import { fraudService } from './fraud.service.js'
+import { clampLimit, clampOffset } from '../../lib/pagination.js'
 
 export async function fraudRoutes(app: FastifyInstance) {
   // User: report fraud
@@ -32,8 +33,8 @@ export async function fraudRoutes(app: FastifyInstance) {
       entityType,
       signalType,
       requiresReview: requiresReview === 'true',
-      limit: limit ? parseInt(limit) : 20,
-      offset: offset ? parseInt(offset) : 0,
+      limit: clampLimit(limit, 20),
+      offset: clampOffset(offset),
     })
   })
 
@@ -52,7 +53,7 @@ export async function fraudRoutes(app: FastifyInstance) {
   // Admin: list reviews
   app.get('/reviews', { preHandler: [authenticate, authorize('admin')] }, async (req) => {
     const { status, limit, offset } = req.query as { status?: string; limit?: string; offset?: string }
-    return fraudService.listReviews({ status, limit: limit ? parseInt(limit) : 20, offset: offset ? parseInt(offset) : 0 })
+    return fraudService.listReviews({ status, limit: clampLimit(limit, 20), offset: clampOffset(offset) })
   })
 
   // Admin: update review

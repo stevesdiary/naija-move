@@ -15,6 +15,7 @@ import {
   type UpdateAssignmentBody,
 } from './fleet.schema.js'
 import { fleetService } from './fleet.service.js'
+import { clampLimit, clampOffset } from '../../lib/pagination.js'
 
 export async function fleetRoutes(app: FastifyInstance) {
   // Fleet Owner: create profile
@@ -105,6 +106,6 @@ export async function fleetRoutes(app: FastifyInstance) {
   // Admin: list all fleet owners
   app.get('/admin/all', { preHandler: [authenticate, authorize('admin')] }, async (req) => {
     const { limit, offset } = req.query as { limit?: string; offset?: string }
-    return fleetService.listOwners(limit ? parseInt(limit) : 20, offset ? parseInt(offset) : 0)
+    return fleetService.listOwners(clampLimit(limit, 20), clampOffset(offset))
   })
 }

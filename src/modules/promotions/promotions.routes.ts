@@ -11,6 +11,7 @@ import {
   type ReferralBody,
 } from './promotions.schema.js'
 import { promotionsService } from './promotions.service.js'
+import { clampLimit, clampOffset } from '../../lib/pagination.js'
 
 export async function promotionsRoutes(app: FastifyInstance) {
   // User: list available promotions
@@ -28,13 +29,13 @@ export async function promotionsRoutes(app: FastifyInstance) {
   // User: list my redemptions
   app.get('/my-redemptions', { preHandler: [authenticate] }, async (req) => {
     const { limit, offset } = req.query as { limit?: string; offset?: string }
-    return promotionsService.listMyRedemptions(req.user.sub, limit ? parseInt(limit) : 20, offset ? parseInt(offset) : 0)
+    return promotionsService.listMyRedemptions(req.user.sub, clampLimit(limit, 20), clampOffset(offset))
   })
 
   // Referrals
   app.get('/referrals', { preHandler: [authenticate] }, async (req) => {
     const { limit, offset } = req.query as { limit?: string; offset?: string }
-    return promotionsService.listMyReferrals(req.user.sub, limit ? parseInt(limit) : 20, offset ? parseInt(offset) : 0)
+    return promotionsService.listMyReferrals(req.user.sub, clampLimit(limit, 20), clampOffset(offset))
   })
 
   // Admin: create promotion
@@ -46,7 +47,7 @@ export async function promotionsRoutes(app: FastifyInstance) {
   // Admin: list all promotions
   app.get('/admin/all', { preHandler: [authenticate, authorize('admin')] }, async (req) => {
     const { limit, offset } = req.query as { limit?: string; offset?: string }
-    return promotionsService.listAllPromotions(limit ? parseInt(limit) : 20, offset ? parseInt(offset) : 0)
+    return promotionsService.listAllPromotions(clampLimit(limit, 20), clampOffset(offset))
   })
 
   // Admin: update promotion

@@ -1,4 +1,5 @@
 import type { FastifyError, FastifyReply, FastifyRequest } from 'fastify'
+import { ZodError } from 'zod'
 
 export class AppError extends Error {
   constructor(
@@ -32,10 +33,17 @@ export function errorHandler(
     })
   }
 
-  // Fastify validation error
-  if ('statusCode' in error && error.statusCode === 400) {
+  // Zod: surface field-level problems as a 400 without leaking internals
+  if (error instanceof ZodError) {
     return reply.status(400).send({
-      error: { code: 'VALIDATION_ERROR', message: error.message },
+      error: { code: 'VALIDATION_ERROR', message: 'Invalid request', issues: error.issues.map((i) => ({ path: i.path.join('.'), message: i.message })) },
+    })
+  }
+
+  // Fastify/plugin errors that already carry a 4xx (400 schema, 413 body too large, 415, 429 rate limit)
+  if ('statusCode' in error && typeof error.statusCode === 'number' && error.statusCode >= 400 && error.statusCode < 500) {
+    return reply.status(error.statusCode).send({
+      error: { code: error.statusCode === 400 ? 'VALIDATION_ERROR' : (error as FastifyError).code ?? 'REQUEST_ERROR', message: error.message },
     })
   }
 

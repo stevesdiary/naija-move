@@ -7,6 +7,7 @@ import {
   type UpdateComplianceItemBody,
 } from './compliance.schema.js'
 import { complianceService } from './compliance.service.js'
+import { clampLimit, clampOffset } from '../../lib/pagination.js'
 
 export async function complianceRoutes(app: FastifyInstance) {
   // User: get my compliance status
@@ -53,8 +54,8 @@ export async function complianceRoutes(app: FastifyInstance) {
       entityType: entityType as 'driver' | 'vehicle' | undefined,
       jurisdiction,
       status,
-      limit: limit ? parseInt(limit) : 20,
-      offset: offset ? parseInt(offset) : 0,
+      limit: clampLimit(limit, 20),
+      offset: clampOffset(offset),
     })
   })
 
