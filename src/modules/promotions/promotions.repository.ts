@@ -1,4 +1,4 @@
-import { db } from '../../db/index.js'
+import { db, type Tx } from '../../db/index.js'
 import { promotions, promoRedemptions, referrals } from '../../db/schema/promotions.js'
 import { eq, and, desc, gte, lte, sql, or } from 'drizzle-orm'
 import { v4 as uuid } from 'uuid'
@@ -70,20 +70,44 @@ export const promotionsRepository = {
   },
 
   // Redemptions
+  /**
+   * Redeem under a row lock on the promotion so budget / total / per-user limits
+   * are re-checked against committed state — concurrent requests can't all pass
+   * the same pre-check. Returns null when a limit is hit.
+   */
   async createRedemption(data: {
     promotionId: string
     userId: string
     tripId?: string | null
     discountKobo: number
+    maxPerUser: number
   }) {
-    const id = uuid()
-    await db.insert(promoRedemptions).values({ id, ...data } as any)
-    // Increment redemption count on promotion
-    await db
-      .update(promotions)
-      .set({ redemptionCount: sql`${promotions.redemptionCount} + 1`, spentKobo: sql`${promotions.spentKobo} + ${data.discountKobo}` } as any)
-      .where(eq(promotions.id, data.promotionId))
-    return this.findRedemptionById(id)
+    return db.transaction(async (tx: Tx) => {
+      const [promo] = await tx.select().from(promotions).where(eq(promotions.id, data.promotionId)).for('update')
+      if (!promo) return null
+      if (promo.spentKobo + data.discountKobo > promo.budgetKobo) return null
+      if (promo.maxRedemptions && promo.redemptionCount >= promo.maxRedemptions) return null
+
+      const [{ n }] = await tx
+        .select({ n: sql<number>`count(*)` })
+        .from(promoRedemptions)
+        .where(and(eq(promoRedemptions.promotionId, data.promotionId), eq(promoRedemptions.userId, data.userId)))
+      if (Number(n) >= data.maxPerUser) return null
+
+      const id = uuid()
+      await tx.insert(promoRedemptions).values({
+        id,
+        promotionId: data.promotionId,
+        userId: data.userId,
+        tripId: data.tripId,
+        discountKobo: data.discountKobo,
+      } as any)
+      await tx
+        .update(promotions)
+        .set({ redemptionCount: sql`${promotions.redemptionCount} + 1`, spentKobo: sql`${promotions.spentKobo} + ${data.discountKobo}` } as any)
+        .where(eq(promotions.id, data.promotionId))
+      return tx.query.promoRedemptions.findFirst({ where: eq(promoRedemptions.id, id) })
+    })
   },
 
   async findRedemptionById(id: string) {

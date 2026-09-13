@@ -1,5 +1,7 @@
 import { promotionsRepository } from './promotions.repository.js'
 import { errors } from '../../lib/errors.js'
+import { ridesRepository } from '../rides/rides.repository.js'
+import { riderIdFor } from '../../lib/actors.js'
 
 export const promotionsService = {
   // Rider/Driver: list available promotions
@@ -53,12 +55,21 @@ export const promotionsService = {
       discountKobo = promo.maxDiscountKobo
     }
 
+    // A promo may only be attached to the redeemer's own trip.
+    if (tripId) {
+      const trip = await ridesRepository.findById(tripId)
+      if (!trip) throw errors.notFound('Trip not found')
+      if (trip.riderId !== (await riderIdFor(userId))) throw errors.forbidden('Not your trip')
+    }
+
     const redemption = await promotionsRepository.createRedemption({
       promotionId: promo.id,
       userId,
       tripId,
       discountKobo,
+      maxPerUser: promo.maxPerUser,
     })
+    if (!redemption) throw errors.unprocessable('Promotion limit reached')
 
     return { promotion: promo, redemption, discountKobo }
   },
