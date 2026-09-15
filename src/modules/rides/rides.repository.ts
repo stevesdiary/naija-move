@@ -6,6 +6,7 @@ import { v4 as uuid } from 'uuid'
 
 const OFFER_EXPIRY_SECONDS = 20
 const MAX_DISPATCH_ATTEMPTS = 3
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 function generatePin(): string {
   return randomInt(1000, 10000).toString()
@@ -219,7 +220,9 @@ export const ridesRepository = {
       id: uuid(),
       tripId,
       event,
-      actorId,
+      // actor_id is a uuid column; sentinel actors like 'system' are recorded in
+      // actor_type only, so store null rather than an invalid uuid.
+      actorId: actorId && UUID_RE.test(actorId) ? actorId : null,
       actorType,
       metadata: metadata ? JSON.stringify(metadata) : null,
     })

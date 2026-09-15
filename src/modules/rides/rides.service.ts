@@ -4,6 +4,7 @@ import { dispatchService } from '../dispatch/dispatch.service.js'
 import { maps } from '../../providers/maps.js'
 import { errors } from '../../lib/errors.js'
 import { redis } from '../../lib/idempotency.js'
+import { ledgerRepository } from '../payments/ledger.repository.js'
 
 const CANCELLATION_FEE_KOBO = 5000 // ₦50
 const PIN_MAX_ATTEMPTS = 5
@@ -181,6 +182,25 @@ export const ridesService = {
     })
 
     await ridesRepository.updateStatus(tripId, 'completed', driverId, 'driver')
+
+    // Post the trip's earnings to the ledger so the nightly settlement can pay the
+    // driver (card trips settle when the rider's charge succeeds instead).
+    try {
+      await ledgerRepository.recordTripEarnings({
+        id: tripId,
+        paymentMethod: trip.paymentMethod,
+        finalFareKobo,
+        estimatedFareKobo: trip.estimatedFareKobo,
+        platformFeeKobo,
+        driverAmountKobo,
+        riderId: trip.riderId,
+        driverId: trip.driverId,
+      })
+    } catch (err) {
+      // Never fail the completion because accounting hiccuped — it can be reconciled.
+      console.error(`recordTripEarnings failed for trip ${tripId}:`, err)
+    }
+
     return { tripId, status: 'completed', finalFareKobo, driverAmountKobo }
   },
 

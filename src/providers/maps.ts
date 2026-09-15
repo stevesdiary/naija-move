@@ -64,8 +64,9 @@ async function getRouteOSRM(origin: Coordinates, destination: Coordinates): Prom
 
   const route = data.routes[0]
   return {
-    distanceMeters: route.distance,
-    durationSeconds: route.duration,
+    // distance/duration are persisted to bigint columns — keep them whole.
+    distanceMeters: Math.round(route.distance),
+    durationSeconds: Math.round(route.duration),
     polyline: route.geometry,
   }
 }
@@ -84,8 +85,9 @@ async function getRouteMapbox(origin: Coordinates, destination: Coordinates): Pr
   if (!route) throw new Error('No route found')
 
   return {
-    distanceMeters: route.distance,
-    durationSeconds: route.duration,
+    // distance/duration are persisted to bigint columns — keep them whole.
+    distanceMeters: Math.round(route.distance),
+    durationSeconds: Math.round(route.duration),
     polyline: route.geometry,
   }
 }

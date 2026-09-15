@@ -192,7 +192,10 @@ export const paymentsService = {
         description: `Driver payable for trip ${tripId}`,
         referenceId: tripId,
         referenceType: 'trip',
-        actorId: riderId,
+        // Debit leaves the rider's wallet; the payable is owed to the driver.
+        // driver_payable is aggregated by actorId at settlement, so it must be the driver.
+        debitActorId: riderId,
+        creditActorId: trip.driverId ?? undefined,
         metadata: { paymentReference: reference, driverId: trip.driverId },
       }, tx)
     })

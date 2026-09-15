@@ -12,4 +12,8 @@ redis.on('error', (err) => {
   console.error('Redis connection error:', err)
 })
 
-await redis.connect()
+// Intentionally NOT calling redis.connect() here: the client is configured with
+// lazyConnect, so it connects on first command (e.g. the first rate-limit hit).
+// A top-level await connect() would defeat lazyConnect, turn importing app.ts
+// into a live-socket side effect, and crash boot/tests/scripts whenever Redis is
+// briefly unreachable.
