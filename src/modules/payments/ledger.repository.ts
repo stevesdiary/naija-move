@@ -168,7 +168,9 @@ export const ledgerRepository = {
         }
         if (driverAmountKobo > 0) {
           await this.createDoubleEntry({
-            correlationId: `${correlationId}_driver`,
+            // A distinct pair from the fee split above — correlation_id is a
+            // uuid column, so it must be a real uuid, not `${id}_driver`.
+            correlationId: uuid(),
             debitAccount: riderAccount,
             creditAccount: 'driver_payable',
             amountKobo: driverAmountKobo,

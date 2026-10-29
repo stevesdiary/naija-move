@@ -184,7 +184,9 @@ export const paymentsService = {
       }, tx)
 
       await ledgerRepository.createDoubleEntry({
-        correlationId: `${correlationId}_driver`,
+        // Separate double-entry from the fee split; correlation_id is a uuid
+        // column, so generate a fresh uuid rather than suffixing the other one.
+        correlationId: uuid(),
         debitAccount: 'rider_wallet',
         creditAccount: 'driver_payable',
         amountKobo: driverAmountKobo,
