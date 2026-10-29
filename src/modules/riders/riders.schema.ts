@@ -20,6 +20,14 @@ export const emergencyContactSchema = z.object({
   shareTrips: z.boolean().optional(),
 })
 
+export const ninKycSchema = z.object({
+  nin: z.string().regex(/^\d{11}$/, 'NIN must be 11 digits'),
+  // Optional overrides — default to the names on the rider's own profile.
+  firstName: z.string().min(1).max(100).optional(),
+  lastName: z.string().min(1).max(100).optional(),
+})
+
 export type UpdateProfileBody = z.infer<typeof updateProfileSchema>
 export type SavedPlaceBody = z.infer<typeof savedPlaceSchema>
 export type EmergencyContactBody = z.infer<typeof emergencyContactSchema>
+export type NinKycBody = z.infer<typeof ninKycSchema>

@@ -4,9 +4,11 @@ import {
   updateProfileSchema,
   savedPlaceSchema,
   emergencyContactSchema,
+  ninKycSchema,
   type UpdateProfileBody,
   type SavedPlaceBody,
   type EmergencyContactBody,
+  type NinKycBody,
 } from './riders.schema.js'
 import { ridersService } from './riders.service.js'
 
@@ -39,6 +41,16 @@ export async function riderRoutes(app: FastifyInstance) {
     const { placeId } = req.params as { placeId: string }
     await ridersService.removeSavedPlace(req.user.sub, placeId)
     return { message: 'Saved place removed' }
+  })
+
+  // KYC / identity verification
+  app.get('/me/kyc', { preHandler: [authenticate, authorize('rider')] }, async (req) => {
+    return ridersService.getKycStatus(req.user.sub)
+  })
+
+  app.post<{ Body: NinKycBody }>('/me/kyc/nin', { preHandler: [authenticate, authorize('rider')] }, async (req) => {
+    const body = ninKycSchema.parse(req.body)
+    return ridersService.verifyNinKyc(req.user.sub, body)
   })
 
   // Emergency Contacts

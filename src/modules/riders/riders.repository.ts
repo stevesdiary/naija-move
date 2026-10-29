@@ -53,6 +53,21 @@ export const ridersRepository = {
     await db.update(riders).set({ deletedAt: new Date() }).where(eq(riders.id, id))
   },
 
+  /** Persist the (already-encrypted) outcome of a NIN KYC check. */
+  async setKyc(id: string, data: {
+    kycStatus: 'unverified' | 'pending' | 'verified' | 'rejected'
+    nin: string | null
+    ninVerified: boolean
+    ninData: string | null
+    kycVerifiedAt: Date | null
+  }) {
+    await db
+      .update(riders)
+      .set({ ...data, updatedAt: new Date() })
+      .where(and(eq(riders.id, id), isNull(riders.deletedAt)))
+    return this.findById(id)
+  },
+
   // Saved Places — no deletedAt or updatedAt on this table
   async listSavedPlaces(riderId: string) {
     return db.query.savedPlaces.findMany({
