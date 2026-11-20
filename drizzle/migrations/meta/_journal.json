@@ -8,6 +8,13 @@
       "when": 1789265619381,
       "tag": "0000_strange_mad_thinker",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1793138498021,
+      "tag": "0001_special_crystal",
+      "breakpoints": true
     }
   ]
 }
