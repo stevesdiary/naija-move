@@ -30,6 +30,15 @@ const schema = z.object({
   PAYSTACK_SECRET_KEY: z.string().min(1),
   PAYSTACK_WEBHOOK_SECRET: z.string().min(1),
 
+  // Identity verification (Interswitch Marketplace — NIN/BVN KYC). Optional:
+  // when CLIENT_ID/SECRET are unset, a dev mock provider is used so the KYC
+  // flow is exercisable end-to-end without live credentials.
+  INTERSWITCH_IDENTITY_BASE_URL: z.string().url().default('https://sandbox.interswitchng.com/marketplace-routing/api'),
+  INTERSWITCH_CLIENT_ID: z.string().optional(),
+  INTERSWITCH_CLIENT_SECRET: z.string().optional(),
+  /** 32-byte key (hex or base64) encrypting NIN/identity fields at rest. Falls back to a key derived from JWT_ACCESS_SECRET in non-production. */
+  IDENTITY_ENCRYPTION_KEY: z.string().optional(),
+
   INTERNAL_JOB_SECRET: z.string().min(32),
 
   APP_URL: z.string().url(),
@@ -72,6 +81,20 @@ if (b2.some(Boolean) && !b2.every(Boolean)) {
 
 if (parsed.data.JWT_ACCESS_SECRET === parsed.data.JWT_REFRESH_SECRET) {
   console.error('❌ JWT_ACCESS_SECRET and JWT_REFRESH_SECRET must differ')
+  process.exit(1)
+}
+
+// Identity provider: both client credentials go together, or neither (mock).
+const isw = [parsed.data.INTERSWITCH_CLIENT_ID, parsed.data.INTERSWITCH_CLIENT_SECRET]
+if (isw.some(Boolean) && !isw.every(Boolean)) {
+  console.error('❌ INTERSWITCH_CLIENT_ID and INTERSWITCH_CLIENT_SECRET must be set together')
+  process.exit(1)
+}
+if (parsed.data.NODE_ENV === 'production' && !parsed.data.INTERSWITCH_CLIENT_ID) {
+  console.warn('⚠️  Identity verification is unconfigured — rider KYC will use the MOCK provider. Set INTERSWITCH_CLIENT_ID/SECRET for production.')
+}
+if (parsed.data.NODE_ENV === 'production' && parsed.data.INTERSWITCH_CLIENT_ID && !parsed.data.IDENTITY_ENCRYPTION_KEY) {
+  console.error('❌ IDENTITY_ENCRYPTION_KEY must be set in production when identity verification is enabled')
   process.exit(1)
 }
 
