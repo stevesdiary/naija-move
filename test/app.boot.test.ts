@@ -22,6 +22,8 @@ vi.mock('../src/config/env.js', () => ({
     APP_URL: 'http://localhost:3000',
     PORT: 3000,
     DATABASE_URL: 'postgresql://localhost/test',
+    CORS_ORIGINS: 'http://localhost:5173',
+    TRUST_PROXY: 0,
   },
 }))
 
