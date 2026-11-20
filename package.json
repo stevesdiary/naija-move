@@ -15,6 +15,7 @@
     "db:migrate": "tsx scripts/migrate.ts",
     "db:studio": "drizzle-kit studio",
     "db:tables": "tsx scripts/db-tables.ts",
+    "db:seed": "tsx scripts/seed.ts",
     "admin:create": "tsx scripts/create-admin.ts",
     "storage:check": "tsx scripts/storage-check.ts"
   },
